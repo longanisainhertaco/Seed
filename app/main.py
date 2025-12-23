@@ -6,7 +6,7 @@ from datetime import datetime
 import logging
 import os
 import shutil
-from typing import Optional
+from typing import Optional, List
 
 from app.database import (
     init_database, get_all_seeds, get_seed_by_id, create_seed, update_seed, delete_seed,
@@ -111,6 +111,37 @@ async def delete_seed_post(seed_id: int):
     """Delete a seed."""
     delete_seed(seed_id)
     return RedirectResponse(url="/seeds", status_code=303)
+
+
+@app.post("/print_labels", response_class=HTMLResponse)
+async def print_labels(request: Request, seed_ids: Optional[List[int]] = Form(None)):
+    """Render a print-friendly page for selected seed labels."""
+    if not seed_ids:
+        seeds = get_all_seeds()
+        return templates.TemplateResponse("seeds.html", {
+            "request": request,
+            "seeds": seeds,
+            "error_message": "Please select at least one seed to print."
+        }, status_code=400)
+
+    selected_seeds = []
+    for seed_id in seed_ids:
+        seed = get_seed_by_id(seed_id)
+        if seed:
+            selected_seeds.append(seed)
+
+    if not selected_seeds:
+        seeds = get_all_seeds()
+        return templates.TemplateResponse("seeds.html", {
+            "request": request,
+            "seeds": seeds,
+            "error_message": "No valid seeds found for printing."
+        }, status_code=400)
+
+    return templates.TemplateResponse("print_labels.html", {
+        "request": request,
+        "seeds": selected_seeds
+    })
 
 
 @app.get("/tasks", response_class=HTMLResponse)
