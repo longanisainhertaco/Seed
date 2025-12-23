@@ -26,14 +26,12 @@ class TestDatabase(unittest.TestCase):
 
     def setUp(self):
         """Clear database before each test."""
-        conn = database.get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM inventory_adjustments")
-        cursor.execute("DELETE FROM tasks")
-        cursor.execute("DELETE FROM inventory")
-        cursor.execute("DELETE FROM seeds")
-        conn.commit()
-        conn.close()
+        with database.get_session() as session:
+            session.query(InventoryAdjustment).delete()
+            session.query(Task).delete()
+            session.query(Inventory).delete()
+            session.query(Seed).delete()
+            session.flush()
 
     def test_create_and_get_seed(self):
         """Test creating and retrieving a seed."""
