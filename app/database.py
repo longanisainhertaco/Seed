@@ -1,130 +1,176 @@
-import sqlite3
-from datetime import datetime
-from typing import List, Optional, Dict, Any
 import logging
-from app.models import Seed, Task, Inventory, InventoryAdjustment, TaskStatus
+from contextlib import contextmanager
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+from sqlalchemy import create_engine, event
+from sqlalchemy.orm import Session, sessionmaker, joinedload
+
+from app.models import Base, Seed, Task, Inventory, InventoryAdjustment
 
 logger = logging.getLogger(__name__)
 
 DATABASE_PATH = "seed_library.db"
 
+_engine = None
+SessionLocal = None
 
-def get_db_connection():
-    """Create and return a database connection."""
-    conn = sqlite3.connect(DATABASE_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+
+def _create_engine():
+    """Create a SQLAlchemy engine with SQLite settings."""
+    global _engine, SessionLocal
+
+    if _engine:
+        _engine.dispose()
+
+    engine = create_engine(
+        f"sqlite:///{DATABASE_PATH}",
+        connect_args={"check_same_thread": False},
+        future=True,
+    )
+
+    @event.listens_for(engine, "connect")
+    def set_sqlite_pragma(dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
+    SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+    _engine = engine
+    logger.info(f"Database engine created for {DATABASE_PATH}")
+    return _engine
+
+
+def get_engine():
+    """Return the active engine, recreating it if needed."""
+    global _engine
+    if not _engine or str(_engine.url.database) != DATABASE_PATH:
+        _engine = _create_engine()
+    return _engine
+
+
+@contextmanager
+def get_session() -> Session:
+    """Provide a transactional session scope."""
+    engine = get_engine()
+    session: Session = SessionLocal()
+    try:
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
 
 
 def init_database():
-    """Initialize the database with required tables."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    """Initialize database tables using ORM metadata."""
+    engine = get_engine()
+    Base.metadata.create_all(bind=engine)
+    logger.info("Database initialized successfully via ORM")
 
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS seeds (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            type TEXT NOT NULL,
-            name TEXT NOT NULL,
-            packets_made INTEGER DEFAULT 0,
-            seed_source TEXT,
-            date_ordered TEXT,
-            date_finished TEXT,
-            date_cataloged TEXT,
-            date_ran_out TEXT,
-            amount_text TEXT,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        )
-    """)
 
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS tasks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            seed_id INTEGER NOT NULL,
-            task_type TEXT NOT NULL,
-            status TEXT NOT NULL,
-            due_date TEXT,
-            completed_at TEXT,
-            description TEXT,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            FOREIGN KEY (seed_id) REFERENCES seeds (id) ON DELETE CASCADE
-        )
-    """)
+def _seed_to_dict(seed: Seed) -> Dict[str, Any]:
+    return {
+        "id": seed.id,
+        "type": seed.type,
+        "name": seed.name,
+        "packets_made": seed.packets_made,
+        "seed_source": seed.seed_source,
+        "date_ordered": seed.date_ordered,
+        "date_finished": seed.date_finished,
+        "date_cataloged": seed.date_cataloged,
+        "date_ran_out": seed.date_ran_out,
+        "amount_text": seed.amount_text,
+        "created_at": seed.created_at,
+        "updated_at": seed.updated_at,
+    }
 
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS inventory (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            seed_id INTEGER NOT NULL UNIQUE,
-            current_amount TEXT,
-            buy_more BOOLEAN DEFAULT 0,
-            extra BOOLEAN DEFAULT 0,
-            notes TEXT,
-            last_updated TEXT NOT NULL,
-            FOREIGN KEY (seed_id) REFERENCES seeds (id) ON DELETE CASCADE
-        )
-    """)
 
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS inventory_adjustments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            seed_id INTEGER NOT NULL,
-            adjustment_type TEXT NOT NULL,
-            amount_change TEXT,
-            reason TEXT,
-            adjusted_at TEXT NOT NULL,
-            FOREIGN KEY (seed_id) REFERENCES seeds (id) ON DELETE CASCADE
-        )
-    """)
+def _task_to_dict(task: Task, seed: Optional[Seed] = None) -> Dict[str, Any]:
+    task_dict = {
+        "id": task.id,
+        "seed_id": task.seed_id,
+        "task_type": task.task_type,
+        "status": task.status,
+        "due_date": task.due_date,
+        "completed_at": task.completed_at,
+        "description": task.description,
+        "created_at": task.created_at,
+        "updated_at": task.updated_at,
+    }
+    if seed:
+        task_dict["seed_name"] = seed.name
+        task_dict["seed_type"] = seed.type
+    return task_dict
 
-    conn.commit()
-    conn.close()
-    logger.info("Database initialized successfully")
+
+def _inventory_to_dict(inventory: Inventory, seed: Optional[Seed] = None) -> Dict[str, Any]:
+    inventory_dict = {
+        "id": inventory.id,
+        "seed_id": inventory.seed_id,
+        "current_amount": inventory.current_amount,
+        "buy_more": bool(inventory.buy_more),
+        "extra": bool(inventory.extra),
+        "notes": inventory.notes,
+        "last_updated": inventory.last_updated,
+    }
+    if seed:
+        inventory_dict["seed_name"] = seed.name
+        inventory_dict["seed_type"] = seed.type
+    return inventory_dict
+
+
+def _adjustment_to_dict(adjustment: InventoryAdjustment, seed: Optional[Seed] = None) -> Dict[str, Any]:
+    adjustment_dict = {
+        "id": adjustment.id,
+        "seed_id": adjustment.seed_id,
+        "adjustment_type": adjustment.adjustment_type,
+        "amount_change": adjustment.amount_change,
+        "reason": adjustment.reason,
+        "adjusted_at": adjustment.adjusted_at,
+    }
+    if seed:
+        adjustment_dict["seed_name"] = seed.name
+    return adjustment_dict
 
 
 def create_seed(seed: Seed) -> int:
     """Create a new seed record."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        INSERT INTO seeds (
-            type, name, packets_made, seed_source,
-            date_ordered, date_finished, date_cataloged, date_ran_out,
-            amount_text, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-        seed.type, seed.name, seed.packets_made, seed.seed_source,
-        seed.date_ordered, seed.date_finished, seed.date_cataloged,
-        seed.date_ran_out, seed.amount_text, seed.created_at, seed.updated_at
-    ))
-
-    seed_id = cursor.lastrowid
-    conn.commit()
-    conn.close()
-    logger.info(f"Created seed with ID: {seed_id}")
-    return seed_id
+    with get_session() as session:
+        new_seed = Seed(
+            type=seed.type,
+            name=seed.name,
+            packets_made=seed.packets_made,
+            seed_source=seed.seed_source,
+            date_ordered=seed.date_ordered,
+            date_finished=seed.date_finished,
+            date_cataloged=seed.date_cataloged,
+            date_ran_out=seed.date_ran_out,
+            amount_text=seed.amount_text,
+            created_at=seed.created_at or datetime.now().isoformat(),
+            updated_at=seed.updated_at or datetime.now().isoformat(),
+        )
+        session.add(new_seed)
+        session.flush()
+        seed_id = new_seed.id
+        logger.info(f"Created seed with ID: {seed_id}")
+        return seed_id
 
 
 def get_all_seeds() -> List[Dict[str, Any]]:
-    """Retrieve all seeds."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM seeds ORDER BY created_at DESC")
-    rows = cursor.fetchall()
-    conn.close()
-    return [dict(row) for row in rows]
+    """Retrieve all seeds ordered by creation date descending."""
+    with get_session() as session:
+        seeds = session.query(Seed).order_by(Seed.created_at.desc()).all()
+        return [_seed_to_dict(seed) for seed in seeds]
 
 
 def get_seed_by_id(seed_id: int) -> Optional[Dict[str, Any]]:
     """Retrieve a seed by ID."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM seeds WHERE id = ?", (seed_id,))
-    row = cursor.fetchone()
-    conn.close()
-    return dict(row) if row else None
+    with get_session() as session:
+        seed = session.get(Seed, seed_id)
+        return _seed_to_dict(seed) if seed else None
 
 
 def update_seed(seed_id: int, updates: Dict[str, Any]) -> bool:
@@ -132,77 +178,72 @@ def update_seed(seed_id: int, updates: Dict[str, Any]) -> bool:
     if not updates:
         return False
 
-    updates['updated_at'] = datetime.now().isoformat()
-    set_clause = ', '.join([f"{key} = ?" for key in updates.keys()])
-    values = list(updates.values()) + [seed_id]
+    with get_session() as session:
+        seed = session.get(Seed, seed_id)
+        if not seed:
+            return False
 
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute(f"UPDATE seeds SET {set_clause} WHERE id = ?", values)
-    affected = cursor.rowcount
-    conn.commit()
-    conn.close()
-    logger.info(f"Updated seed {seed_id}, affected rows: {affected}")
-    return affected > 0
+        updates["updated_at"] = datetime.now().isoformat()
+        for key, value in updates.items():
+            setattr(seed, key, value)
+        session.flush()
+        logger.info(f"Updated seed {seed_id}")
+        return True
 
 
 def delete_seed(seed_id: int) -> bool:
-    """Delete a seed record."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM seeds WHERE id = ?", (seed_id,))
-    affected = cursor.rowcount
-    conn.commit()
-    conn.close()
-    logger.info(f"Deleted seed {seed_id}, affected rows: {affected}")
-    return affected > 0
+    """Delete a seed record along with cascading relations."""
+    with get_session() as session:
+        seed = session.get(Seed, seed_id)
+        if not seed:
+            return False
+        session.delete(seed)
+        logger.info(f"Deleted seed {seed_id}")
+        return True
 
 
 def create_task(task: Task) -> int:
     """Create a new task."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        INSERT INTO tasks (
-            seed_id, task_type, status, due_date, completed_at,
-            description, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-        task.seed_id, task.task_type, task.status, task.due_date,
-        task.completed_at, task.description, task.created_at, task.updated_at
-    ))
-
-    task_id = cursor.lastrowid
-    conn.commit()
-    conn.close()
-    logger.info(f"Created task with ID: {task_id}")
-    return task_id
+    with get_session() as session:
+        new_task = Task(
+            seed_id=task.seed_id,
+            task_type=task.task_type,
+            status=task.status,
+            due_date=task.due_date,
+            completed_at=task.completed_at,
+            description=task.description,
+            created_at=task.created_at or datetime.now().isoformat(),
+            updated_at=task.updated_at or datetime.now().isoformat(),
+        )
+        session.add(new_task)
+        session.flush()
+        task_id = new_task.id
+        logger.info(f"Created task with ID: {task_id}")
+        return task_id
 
 
 def get_all_tasks() -> List[Dict[str, Any]]:
-    """Retrieve all tasks with seed information."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT t.*, s.name as seed_name, s.type as seed_type
-        FROM tasks t
-        LEFT JOIN seeds s ON t.seed_id = s.id
-        ORDER BY t.created_at DESC
-    """)
-    rows = cursor.fetchall()
-    conn.close()
-    return [dict(row) for row in rows]
+    """Retrieve all tasks with seed information ordered by creation date."""
+    with get_session() as session:
+        results = (
+            session.query(Task, Seed)
+            .outerjoin(Seed, Task.seed_id == Seed.id)
+            .order_by(Task.created_at.desc())
+            .all()
+        )
+        return [_task_to_dict(task, seed) for task, seed in results]
 
 
 def get_tasks_by_seed(seed_id: int) -> List[Dict[str, Any]]:
     """Retrieve all tasks for a specific seed."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM tasks WHERE seed_id = ? ORDER BY created_at DESC", (seed_id,))
-    rows = cursor.fetchall()
-    conn.close()
-    return [dict(row) for row in rows]
+    with get_session() as session:
+        tasks = (
+            session.query(Task)
+            .filter(Task.seed_id == seed_id)
+            .order_by(Task.created_at.desc())
+            .all()
+        )
+        return [_task_to_dict(task) for task in tasks]
 
 
 def update_task(task_id: int, updates: Dict[str, Any]) -> bool:
@@ -210,54 +251,55 @@ def update_task(task_id: int, updates: Dict[str, Any]) -> bool:
     if not updates:
         return False
 
-    updates['updated_at'] = datetime.now().isoformat()
-    set_clause = ', '.join([f"{key} = ?" for key in updates.keys()])
-    values = list(updates.values()) + [task_id]
+    with get_session() as session:
+        task = session.get(Task, task_id)
+        if not task:
+            return False
 
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute(f"UPDATE tasks SET {set_clause} WHERE id = ?", values)
-    affected = cursor.rowcount
-    conn.commit()
-    conn.close()
-    logger.info(f"Updated task {task_id}, affected rows: {affected}")
-    return affected > 0
+        updates["updated_at"] = datetime.now().isoformat()
+        for key, value in updates.items():
+            setattr(task, key, value)
+        session.flush()
+        logger.info(f"Updated task {task_id}")
+        return True
 
 
 def delete_task(task_id: int) -> bool:
     """Delete a task."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
-    affected = cursor.rowcount
-    conn.commit()
-    conn.close()
-    logger.info(f"Deleted task {task_id}, affected rows: {affected}")
-    return affected > 0
+    with get_session() as session:
+        task = session.get(Task, task_id)
+        if not task:
+            return False
+        session.delete(task)
+        logger.info(f"Deleted task {task_id}")
+        return True
 
 
 def get_or_create_inventory(seed_id: int) -> Dict[str, Any]:
     """Get or create inventory record for a seed."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM inventory WHERE seed_id = ?", (seed_id,))
-    row = cursor.fetchone()
+    with get_session() as session:
+        inventory = (
+            session.query(Inventory)
+            .options(joinedload(Inventory.seed))
+            .filter(Inventory.seed_id == seed_id)
+            .one_or_none()
+        )
 
-    if row:
-        conn.close()
-        return dict(row)
+        if inventory:
+            return _inventory_to_dict(inventory, inventory.seed)
 
-    cursor.execute("""
-        INSERT INTO inventory (seed_id, current_amount, buy_more, extra, notes, last_updated)
-        VALUES (?, '', 0, 0, '', ?)
-    """, (seed_id, datetime.now().isoformat()))
-
-    inventory_id = cursor.lastrowid
-    conn.commit()
-    cursor.execute("SELECT * FROM inventory WHERE id = ?", (inventory_id,))
-    row = cursor.fetchone()
-    conn.close()
-    return dict(row) if row else {}
+        inventory = Inventory(
+            seed_id=seed_id,
+            current_amount="",
+            buy_more=False,
+            extra=False,
+            notes="",
+            last_updated=datetime.now().isoformat(),
+        )
+        session.add(inventory)
+        session.flush()
+        session.refresh(inventory)
+        return _inventory_to_dict(inventory, inventory.seed)
 
 
 def update_inventory(seed_id: int, updates: Dict[str, Any]) -> bool:
@@ -265,77 +307,59 @@ def update_inventory(seed_id: int, updates: Dict[str, Any]) -> bool:
     if not updates:
         return False
 
-    updates['last_updated'] = datetime.now().isoformat()
-    set_clause = ', '.join([f"{key} = ?" for key in updates.keys()])
-    values = list(updates.values()) + [seed_id]
+    with get_session() as session:
+        inventory = session.query(Inventory).filter(Inventory.seed_id == seed_id).one_or_none()
+        if not inventory:
+            return False
 
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute(f"UPDATE inventory SET {set_clause} WHERE seed_id = ?", values)
-    affected = cursor.rowcount
-    conn.commit()
-    conn.close()
-    logger.info(f"Updated inventory for seed {seed_id}, affected rows: {affected}")
-    return affected > 0
+        updates["last_updated"] = datetime.now().isoformat()
+        for key, value in updates.items():
+            setattr(inventory, key, value)
+        session.flush()
+        logger.info(f"Updated inventory for seed {seed_id}")
+        return True
 
 
 def get_all_inventory() -> List[Dict[str, Any]]:
-    """Retrieve all inventory records with seed information."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT i.*, s.name as seed_name, s.type as seed_type
-        FROM inventory i
-        LEFT JOIN seeds s ON i.seed_id = s.id
-        ORDER BY s.name
-    """)
-    rows = cursor.fetchall()
-    conn.close()
-    return [dict(row) for row in rows]
+    """Retrieve all inventory records with seed information ordered by seed name."""
+    with get_session() as session:
+        inventory_items = (
+            session.query(Inventory, Seed)
+            .outerjoin(Seed, Inventory.seed_id == Seed.id)
+            .order_by(Seed.name)
+            .all()
+        )
+        return [_inventory_to_dict(inventory, seed) for inventory, seed in inventory_items]
 
 
 def create_inventory_adjustment(adjustment: InventoryAdjustment) -> int:
     """Create an inventory adjustment record."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        INSERT INTO inventory_adjustments (
-            seed_id, adjustment_type, amount_change, reason, adjusted_at
-        ) VALUES (?, ?, ?, ?, ?)
-    """, (
-        adjustment.seed_id, adjustment.adjustment_type,
-        adjustment.amount_change, adjustment.reason, adjustment.adjusted_at
-    ))
-
-    adjustment_id = cursor.lastrowid
-    conn.commit()
-    conn.close()
-    logger.info(f"Created inventory adjustment with ID: {adjustment_id}")
-    return adjustment_id
+    with get_session() as session:
+        new_adjustment = InventoryAdjustment(
+            seed_id=adjustment.seed_id,
+            adjustment_type=adjustment.adjustment_type,
+            amount_change=adjustment.amount_change,
+            reason=adjustment.reason,
+            adjusted_at=adjustment.adjusted_at or datetime.now().isoformat(),
+        )
+        session.add(new_adjustment)
+        session.flush()
+        adjustment_id = new_adjustment.id
+        logger.info(f"Created inventory adjustment with ID: {adjustment_id}")
+        return adjustment_id
 
 
 def get_inventory_adjustments(seed_id: Optional[int] = None) -> List[Dict[str, Any]]:
     """Retrieve inventory adjustments, optionally filtered by seed."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    with get_session() as session:
+        query = (
+            session.query(InventoryAdjustment, Seed)
+            .outerjoin(Seed, InventoryAdjustment.seed_id == Seed.id)
+            .order_by(InventoryAdjustment.adjusted_at.desc())
+        )
 
-    if seed_id:
-        cursor.execute("""
-            SELECT ia.*, s.name as seed_name
-            FROM inventory_adjustments ia
-            LEFT JOIN seeds s ON ia.seed_id = s.id
-            WHERE ia.seed_id = ?
-            ORDER BY ia.adjusted_at DESC
-        """, (seed_id,))
-    else:
-        cursor.execute("""
-            SELECT ia.*, s.name as seed_name
-            FROM inventory_adjustments ia
-            LEFT JOIN seeds s ON ia.seed_id = s.id
-            ORDER BY ia.adjusted_at DESC
-        """)
+        if seed_id:
+            query = query.filter(InventoryAdjustment.seed_id == seed_id)
 
-    rows = cursor.fetchall()
-    conn.close()
-    return [dict(row) for row in rows]
+        adjustments = query.all()
+        return [_adjustment_to_dict(adj, seed) for adj, seed in adjustments]

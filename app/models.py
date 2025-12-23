@@ -1,6 +1,11 @@
-from datetime import datetime, date
+from datetime import datetime
 from typing import Optional
 from enum import Enum
+
+from sqlalchemy import Boolean, Column, ForeignKey, Integer, String
+from sqlalchemy.orm import declarative_base, relationship
+
+Base = declarative_base()
 
 
 class TaskType(str, Enum):
@@ -15,7 +20,42 @@ class TaskStatus(str, Enum):
     DONE = "Done"
 
 
-class Seed:
+class Seed(Base):
+    __tablename__ = "seeds"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    type = Column(String, nullable=False)
+    name = Column(String, nullable=False)
+    packets_made = Column(Integer, default=0)
+    seed_source = Column(String)
+    date_ordered = Column(String)
+    date_finished = Column(String)
+    date_cataloged = Column(String)
+    date_ran_out = Column(String)
+    amount_text = Column(String)
+    created_at = Column(String, nullable=False)
+    updated_at = Column(String, nullable=False)
+
+    tasks = relationship(
+        "Task",
+        back_populates="seed",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    inventory = relationship(
+        "Inventory",
+        back_populates="seed",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        uselist=False,
+    )
+    adjustments = relationship(
+        "InventoryAdjustment",
+        back_populates="seed",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
     def __init__(
         self,
         id: Optional[int] = None,
@@ -45,7 +85,21 @@ class Seed:
         self.updated_at = updated_at or datetime.now().isoformat()
 
 
-class Task:
+class Task(Base):
+    __tablename__ = "tasks"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    seed_id = Column(Integer, ForeignKey("seeds.id", ondelete="CASCADE"), nullable=False)
+    task_type = Column(String, nullable=False)
+    status = Column(String, nullable=False)
+    due_date = Column(String)
+    completed_at = Column(String)
+    description = Column(String)
+    created_at = Column(String, nullable=False)
+    updated_at = Column(String, nullable=False)
+
+    seed = relationship("Seed", back_populates="tasks")
+
     def __init__(
         self,
         id: Optional[int] = None,
@@ -69,7 +123,19 @@ class Task:
         self.updated_at = updated_at or datetime.now().isoformat()
 
 
-class Inventory:
+class Inventory(Base):
+    __tablename__ = "inventory"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    seed_id = Column(Integer, ForeignKey("seeds.id", ondelete="CASCADE"), nullable=False, unique=True)
+    current_amount = Column(String, default="")
+    buy_more = Column(Boolean, default=False)
+    extra = Column(Boolean, default=False)
+    notes = Column(String)
+    last_updated = Column(String, nullable=False)
+
+    seed = relationship("Seed", back_populates="inventory")
+
     def __init__(
         self,
         id: Optional[int] = None,
@@ -89,7 +155,18 @@ class Inventory:
         self.last_updated = last_updated or datetime.now().isoformat()
 
 
-class InventoryAdjustment:
+class InventoryAdjustment(Base):
+    __tablename__ = "inventory_adjustments"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    seed_id = Column(Integer, ForeignKey("seeds.id", ondelete="CASCADE"), nullable=False)
+    adjustment_type = Column(String, nullable=False)
+    amount_change = Column(String)
+    reason = Column(String)
+    adjusted_at = Column(String, nullable=False)
+
+    seed = relationship("Seed", back_populates="adjustments")
+
     def __init__(
         self,
         id: Optional[int] = None,
