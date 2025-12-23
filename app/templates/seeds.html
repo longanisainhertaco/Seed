@@ -4,46 +4,59 @@
 
 {% block content %}
 <div class="seeds-page">
-    <div class="page-header">
-        <h2>Seeds</h2>
-        <a href="/import" class="btn btn-primary">Import Seeds</a>
-    </div>
+    <form method="post" action="/print_labels">
+        <div class="page-header">
+            <h2>Seeds</h2>
+            <div class="page-actions">
+                <button type="submit" class="btn btn-primary">Print Selected Labels</button>
+                <a href="/import" class="btn btn-primary">Import Seeds</a>
+            </div>
+        </div>
 
-    {% if seeds %}
-    <table class="data-table">
-        <thead>
-            <tr>
-                <th>Type</th>
-                <th>Name</th>
-                <th>Packets Made</th>
-                <th>Source</th>
-                <th>Date Ordered</th>
-                <th>Date Finished</th>
-                <th>Date Cataloged</th>
-                <th>Actions</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for seed in seeds %}
-            <tr>
-                <td>{{ seed.type }}</td>
-                <td><a href="/seeds/{{ seed.id }}" class="link">{{ seed.name }}</a></td>
-                <td>{{ seed.packets_made }}</td>
-                <td>{{ seed.seed_source }}</td>
-                <td>{{ seed.date_ordered[:10] if seed.date_ordered else 'N/A' }}</td>
-                <td>{{ seed.date_finished[:10] if seed.date_finished else 'N/A' }}</td>
-                <td>{{ seed.date_cataloged[:10] if seed.date_cataloged else 'N/A' }}</td>
-                <td>
-                    <a href="/seeds/{{ seed.id }}" class="btn btn-sm">View</a>
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-    {% else %}
-    <div class="empty-state">
-        <p>No seeds found. <a href="/import" class="link">Import seeds</a> to get started.</p>
-    </div>
-    {% endif %}
+        {% if error_message %}
+        <div class="error-message">{{ error_message }}</div>
+        {% endif %}
+
+        {% if seeds %}
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Select</th>
+                    <th>Type</th>
+                    <th>Name</th>
+                    <th>Packets Made</th>
+                    <th>Source</th>
+                    <th>Date Ordered</th>
+                    <th>Date Finished</th>
+                    <th>Date Cataloged</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for seed in seeds %}
+                <tr>
+                    <td>
+                        <input type="checkbox" name="seed_ids" value="{{ seed.id }}">
+                    </td>
+                    <td>{{ seed.type }}</td>
+                    <td><a href="/seeds/{{ seed.id }}" class="link">{{ seed.name }}</a></td>
+                    <td>{{ seed.packets_made }}</td>
+                    <td>{{ seed.seed_source }}</td>
+                    <td>{{ seed.date_ordered[:10] if seed.date_ordered else 'N/A' }}</td>
+                    <td>{{ seed.date_finished[:10] if seed.date_finished else 'N/A' }}</td>
+                    <td>{{ seed.date_cataloged[:10] if seed.date_cataloged else 'N/A' }}</td>
+                    <td>
+                        <a href="/seeds/{{ seed.id }}" class="btn btn-sm">View</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+            <p>No seeds found. <a href="/import" class="link">Import seeds</a> to get started.</p>
+        </div>
+        {% endif %}
+    </form>
 </div>
 {% endblock %}
