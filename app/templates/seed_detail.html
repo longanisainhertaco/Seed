@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+
+{% block title %}{{ seed.name }} - Seed Library{% endblock %}
+
+{% block content %}
+<div class="seed-detail">
+    <div class="page-header">
+        <h2>{{ seed.name }}</h2>
+        <form method="post" action="/seeds/{{ seed.id }}/delete" style="display: inline;">
+            <button type="submit" class="btn btn-danger" onclick="return confirm('Are you sure you want to delete this seed?')">Delete Seed</button>
+        </form>
+    </div>
+
+    <div class="card">
+        <h3>Seed Information</h3>
+        <form method="post" action="/seeds/{{ seed.id }}/update">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label>Name</label>
+                    <input type="text" name="name" value="{{ seed.name }}" required>
+                </div>
+                <div class="form-group">
+                    <label>Type</label>
+                    <input type="text" name="type" value="{{ seed.type }}" required>
+                </div>
+                <div class="form-group">
+                    <label>Packets Made</label>
+                    <input type="number" name="packets_made" value="{{ seed.packets_made }}" min="0">
+                </div>
+                <div class="form-group">
+                    <label>Seed Source</label>
+                    <input type="text" name="seed_source" value="{{ seed.seed_source }}">
+                </div>
+                <div class="form-group">
+                    <label>Date Ordered</label>
+                    <input type="date" name="date_ordered" value="{{ seed.date_ordered[:10] if seed.date_ordered else '' }}">
+                </div>
+                <div class="form-group">
+                    <label>Date Finished</label>
+                    <input type="date" name="date_finished" value="{{ seed.date_finished[:10] if seed.date_finished else '' }}">
+                </div>
+                <div class="form-group">
+                    <label>Date Cataloged</label>
+                    <input type="date" name="date_cataloged" value="{{ seed.date_cataloged[:10] if seed.date_cataloged else '' }}">
+                </div>
+                <div class="form-group">
+                    <label>Date Ran Out</label>
+                    <input type="date" name="date_ran_out" value="{{ seed.date_ran_out[:10] if seed.date_ran_out else '' }}">
+                </div>
+                <div class="form-group full-width">
+                    <label>Amount Text</label>
+                    <input type="text" name="amount_text" value="{{ seed.amount_text }}">
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary">Update Seed</button>
+        </form>
+    </div>
+
+    <div class="card">
+        <h3>Inventory</h3>
+        <form method="post" action="/inventory/{{ seed.id }}/update">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label>Current Amount</label>
+                    <input type="text" name="current_amount" value="{{ inventory.current_amount }}">
+                </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" name="buy_more" {% if inventory.buy_more %}checked{% endif %}>
+                        Buy More
+                    </label>
+                </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" name="extra" {% if inventory.extra %}checked{% endif %}>
+                        Extra
+                    </label>
+                </div>
+                <div class="form-group full-width">
+                    <label>Notes</label>
+                    <textarea name="notes" rows="3">{{ inventory.notes }}</textarea>
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary">Update Inventory</button>
+        </form>
+    </div>
+
+    {% if tasks %}
+    <div class="card">
+        <h3>Tasks</h3>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Type</th>
+                    <th>Status</th>
+                    <th>Due Date</th>
+                    <th>Description</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for task in tasks %}
+                <tr>
+                    <td><span class="badge badge-{{ task.task_type.lower() }}">{{ task.task_type }}</span></td>
+                    <td><span class="badge badge-{{ task.status.lower().replace(' ', '-') }}">{{ task.status }}</span></td>
+                    <td>{{ task.due_date[:10] if task.due_date else 'N/A' }}</td>
+                    <td>{{ task.description }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+    {% if adjustments %}
+    <div class="card">
+        <h3>Inventory Adjustments</h3>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Type</th>
+                    <th>Change</th>
+                    <th>Reason</th>
+                    <th>Date</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for adj in adjustments %}
+                <tr>
+                    <td>{{ adj.adjustment_type }}</td>
+                    <td>{{ adj.amount_change }}</td>
+                    <td>{{ adj.reason }}</td>
+                    <td>{{ adj.adjusted_at[:10] if adj.adjusted_at else 'N/A' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
