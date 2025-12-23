@@ -7,6 +7,7 @@ import logging
 import os
 import shutil
 from typing import Optional
+import pandas as pd
 
 from app.database import (
     init_database, get_all_seeds, get_seed_by_id, create_seed, update_seed, delete_seed,
@@ -161,37 +162,153 @@ async def import_page(request: Request):
     """Import page."""
     return templates.TemplateResponse("import.html", {
         "request": request,
-        "result": None
+        "result": None,
+        "columns": None,
+        "file_path": None,
+        "mapping_errors": None,
+        "selected_mapping": {}
     })
 
 
-@app.post("/import", response_class=HTMLResponse)
-async def import_excel(request: Request, file: UploadFile = File(...)):
-    """Import seeds from Excel file."""
+@app.post("/import/upload", response_class=HTMLResponse)
+async def import_upload(request: Request, file: UploadFile = File(...)):
+    """Upload Excel file and read headers for mapping."""
     if not file.filename.endswith(('.xlsx', '.xls')):
         return templates.TemplateResponse("import.html", {
             "request": request,
             "result": {
                 'success': False,
                 'error': 'Please upload an Excel file (.xlsx or .xls)'
-            }
+            },
+            "columns": None,
+            "file_path": None,
+            "mapping_errors": None,
+            "selected_mapping": {}
         })
 
     os.makedirs("data", exist_ok=True)
-    file_path = f"data/{file.filename}"
+    file_path = os.path.join("data", f"import_{int(datetime.now().timestamp())}_{file.filename}")
 
     try:
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
-        result = import_seeds_from_excel(file_path)
-
-        for seed in get_all_seeds():
-            auto_generate_tasks_for_seed(seed['id'])
+        df = pd.read_excel(file_path, nrows=0)
+        columns = [col.strip() for col in df.columns]
 
         return templates.TemplateResponse("import.html", {
             "request": request,
-            "result": result
+            "result": None,
+            "columns": columns,
+            "file_path": file_path,
+            "mapping_errors": None,
+            "selected_mapping": {}
+        })
+
+    except Exception as e:
+        logger.error(f"Import failed: {str(e)}")
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        return templates.TemplateResponse("import.html", {
+            "request": request,
+            "result": {
+                'success': False,
+                'error': str(e)
+            },
+            "columns": None,
+            "file_path": None,
+            "mapping_errors": None,
+            "selected_mapping": {}
+        })
+
+
+@app.post("/import/confirm", response_class=HTMLResponse)
+async def import_confirm(
+    request: Request,
+    file_path: str = Form(...),
+    type_column: Optional[str] = Form(None),
+    name_column: Optional[str] = Form(None),
+    packets_made_column: Optional[str] = Form(None),
+    seed_source_column: Optional[str] = Form(None),
+    date_ordered_column: Optional[str] = Form(None),
+    date_finished_column: Optional[str] = Form(None),
+    date_cataloged_column: Optional[str] = Form(None),
+    date_ran_out_column: Optional[str] = Form(None),
+    amount_text_column: Optional[str] = Form(None)
+):
+    """Confirm import with selected column mappings."""
+    if not os.path.exists(file_path):
+        return templates.TemplateResponse("import.html", {
+            "request": request,
+            "result": {
+                'success': False,
+                'error': 'Uploaded file could not be found. Please upload again.'
+            },
+            "columns": None,
+            "file_path": None,
+            "mapping_errors": None,
+            "selected_mapping": {}
+        })
+
+    mapping = {
+        'Type': type_column,
+        'Name': name_column,
+        'packets_made': packets_made_column,
+        'seed_source': seed_source_column,
+        'date_ordered': date_ordered_column,
+        'date_finished': date_finished_column,
+        'date_cataloged': date_cataloged_column,
+        'date_ran_out': date_ran_out_column,
+        'amount_text': amount_text_column
+    }
+
+    selected_mapping = {k: v for k, v in mapping.items() if v}
+
+    try:
+        result = import_seeds_from_excel(file_path, mapping)
+
+        if result.get('success'):
+            for seed in get_all_seeds():
+                auto_generate_tasks_for_seed(seed['id'])
+            try:
+                os.remove(file_path)
+            except OSError:
+                logger.warning(f"Temporary file {file_path} could not be removed.")
+
+            return templates.TemplateResponse("import.html", {
+                "request": request,
+                "result": result,
+                "columns": None,
+                "file_path": None,
+                "mapping_errors": None,
+                "selected_mapping": {}
+            })
+
+        if result.get('mapping_errors'):
+            df = pd.read_excel(file_path, nrows=0)
+            columns = [col.strip() for col in df.columns]
+
+            return templates.TemplateResponse("import.html", {
+                "request": request,
+                "result": None,
+                "columns": columns,
+                "file_path": file_path,
+                "mapping_errors": result.get('mapping_errors', []),
+                "selected_mapping": selected_mapping
+            })
+
+        try:
+            os.remove(file_path)
+        except OSError:
+            logger.warning(f"Temporary file {file_path} could not be removed.")
+
+        return templates.TemplateResponse("import.html", {
+            "request": request,
+            "result": result,
+            "columns": None,
+            "file_path": None,
+            "mapping_errors": None,
+            "selected_mapping": selected_mapping
         })
 
     except Exception as e:
@@ -201,7 +318,11 @@ async def import_excel(request: Request, file: UploadFile = File(...)):
             "result": {
                 'success': False,
                 'error': str(e)
-            }
+            },
+            "columns": None,
+            "file_path": None,
+            "mapping_errors": None,
+            "selected_mapping": selected_mapping
         })
 
 

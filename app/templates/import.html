@@ -7,28 +7,132 @@
     <h2>Import Seeds from Excel</h2>
 
     <div class="card">
-        <h3>Upload Excel File</h3>
-        <p>Upload an Excel file (.xlsx or .xls) with the following columns:</p>
-        <ul>
-            <li>Type</li>
-            <li>Name</li>
-            <li>packets_made</li>
-            <li>seed_source</li>
-            <li>date_ordered</li>
-            <li>date_finished</li>
-            <li>date_cataloged</li>
-            <li>date_ran_out</li>
-            <li>amount_text</li>
-        </ul>
+        <h3>Step 1: Upload Excel File</h3>
+        <p>Upload an Excel file (.xlsx or .xls). You'll map your columns in the next step.</p>
 
-        <form method="post" action="/import" enctype="multipart/form-data">
+        <form method="post" action="/import/upload" enctype="multipart/form-data">
             <div class="form-group">
                 <label>Select Excel File</label>
                 <input type="file" name="file" accept=".xlsx,.xls" required>
             </div>
-            <button type="submit" class="btn btn-primary">Import</button>
+            <button type="submit" class="btn btn-primary">Continue to Mapping</button>
         </form>
     </div>
+
+    {% if columns %}
+    <div class="card">
+        <h3>Step 2: Map Columns</h3>
+        <p>Select which Excel columns correspond to the required fields. <strong>Type</strong> and <strong>Name</strong> are required.</p>
+
+        {% if mapping_errors %}
+        <div class="alert alert-danger">
+            <ul>
+                {% for error in mapping_errors %}
+                <li>{{ error }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+
+        <form method="post" action="/import/confirm">
+            <input type="hidden" name="file_path" value="{{ file_path }}">
+
+            <div class="form-grid">
+                <div class="form-group">
+                    <label>Type<span class="required">*</span></label>
+                    <select name="type_column" required>
+                        <option value="">-- Select column --</option>
+                        {% for column in columns %}
+                        <option value="{{ column }}" {% if selected_mapping.Type == column %}selected{% endif %}>{{ column }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>Name<span class="required">*</span></label>
+                    <select name="name_column" required>
+                        <option value="">-- Select column --</option>
+                        {% for column in columns %}
+                        <option value="{{ column }}" {% if selected_mapping.Name == column %}selected{% endif %}>{{ column }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>Packets Made</label>
+                    <select name="packets_made_column">
+                        <option value="">-- Select column --</option>
+                        {% for column in columns %}
+                        <option value="{{ column }}" {% if selected_mapping.packets_made == column %}selected{% endif %}>{{ column }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>Seed Source</label>
+                    <select name="seed_source_column">
+                        <option value="">-- Select column --</option>
+                        {% for column in columns %}
+                        <option value="{{ column }}" {% if selected_mapping.seed_source == column %}selected{% endif %}>{{ column }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>Date Ordered</label>
+                    <select name="date_ordered_column">
+                        <option value="">-- Select column --</option>
+                        {% for column in columns %}
+                        <option value="{{ column }}" {% if selected_mapping.date_ordered == column %}selected{% endif %}>{{ column }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>Date Finished</label>
+                    <select name="date_finished_column">
+                        <option value="">-- Select column --</option>
+                        {% for column in columns %}
+                        <option value="{{ column }}" {% if selected_mapping.date_finished == column %}selected{% endif %}>{{ column }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>Date Cataloged</label>
+                    <select name="date_cataloged_column">
+                        <option value="">-- Select column --</option>
+                        {% for column in columns %}
+                        <option value="{{ column }}" {% if selected_mapping.date_cataloged == column %}selected{% endif %}>{{ column }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>Date Ran Out</label>
+                    <select name="date_ran_out_column">
+                        <option value="">-- Select column --</option>
+                        {% for column in columns %}
+                        <option value="{{ column }}" {% if selected_mapping.date_ran_out == column %}selected{% endif %}>{{ column }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>Amount Text</label>
+                    <select name="amount_text_column">
+                        <option value="">-- Select column --</option>
+                        {% for column in columns %}
+                        <option value="{{ column }}" {% if selected_mapping.amount_text == column %}selected{% endif %}>{{ column }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <button type="submit" class="btn btn-success">Start Import</button>
+        </form>
+    </div>
+    {% endif %}
 
     {% if result %}
     <div class="card {% if result.success %}success{% else %}error{% endif %}">
