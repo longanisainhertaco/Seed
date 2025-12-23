@@ -5,7 +5,7 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from app.models import Seed, Task, Inventory, InventoryAdjustment, TaskType, TaskStatus
+from app.models import Seed, Task, Inventory, InventoryAdjustment, TaskType, TaskStatus, TaskPriority
 
 
 class TestModels(unittest.TestCase):
@@ -33,12 +33,13 @@ class TestModels(unittest.TestCase):
         task = Task(
             seed_id=1,
             task_type=TaskType.PACK,
-            status=TaskStatus.PENDING,
+            status=TaskStatus.TODO,
             description="Pack tomato seeds"
         )
         self.assertEqual(task.seed_id, 1)
         self.assertEqual(task.task_type, TaskType.PACK)
-        self.assertEqual(task.status, TaskStatus.PENDING)
+        self.assertEqual(task.status, TaskStatus.TODO)
+        self.assertEqual(task.priority, TaskPriority.MEDIUM)
         self.assertEqual(task.description, "Pack tomato seeds")
         self.assertIsNotNone(task.created_at)
         self.assertIsNotNone(task.updated_at)

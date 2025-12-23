@@ -3,10 +3,10 @@ from contextlib import contextmanager
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import Session, sessionmaker, joinedload
 
-from app.models import Base, Seed, Task, Inventory, InventoryAdjustment
+from app.models import Base, Seed, Task, TaskStatus, Inventory, InventoryAdjustment
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +68,24 @@ def init_database():
     """Initialize database tables using ORM metadata."""
     engine = get_engine()
     Base.metadata.create_all(bind=engine)
+    _ensure_priority_column(engine)
+    _migrate_task_status_labels(engine)
     logger.info("Database initialized successfully via ORM")
+
+
+def _ensure_priority_column(engine):
+    """Ensure priority column exists on tasks table for legacy databases."""
+    with engine.begin() as conn:
+        columns = [row[1] for row in conn.execute(text("PRAGMA table_info(tasks)")).fetchall()]
+        if "priority" not in columns:
+            conn.execute(text("ALTER TABLE tasks ADD COLUMN priority TEXT DEFAULT 'Medium'"))
+            logger.info("Added priority column to tasks table")
+
+
+def _migrate_task_status_labels(engine):
+    """Normalize legacy task status values."""
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE tasks SET status = 'To Do' WHERE status = 'Pending'"))
 
 
 def _seed_to_dict(seed: Seed) -> Dict[str, Any]:
@@ -93,7 +110,8 @@ def _task_to_dict(task: Task, seed: Optional[Seed] = None) -> Dict[str, Any]:
         "id": task.id,
         "seed_id": task.seed_id,
         "task_type": task.task_type,
-        "status": task.status,
+        "status": TaskStatus.normalize(task.status),
+        "priority": getattr(task, "priority", None) or "Medium",
         "due_date": task.due_date,
         "completed_at": task.completed_at,
         "description": task.description,
@@ -209,6 +227,7 @@ def create_task(task: Task) -> int:
             seed_id=task.seed_id,
             task_type=task.task_type,
             status=task.status,
+            priority=getattr(task, "priority", None) or "Medium",
             due_date=task.due_date,
             completed_at=task.completed_at,
             description=task.description,

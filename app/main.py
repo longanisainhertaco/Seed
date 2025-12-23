@@ -9,8 +9,6 @@ import shutil
 
 
 import pandas as pd
-=======
-
 import json
 
 from typing import Optional, List
@@ -23,7 +21,7 @@ from app.database import (
     get_all_inventory, get_or_create_inventory, update_inventory,
     get_inventory_adjustments, create_inventory_adjustment
 )
-from app.models import Seed, Task, TaskStatus, InventoryAdjustment
+from app.models import Seed, Task, TaskStatus, TaskPriority, InventoryAdjustment
 from app.services.import_service import import_seeds_from_excel
 from app.services.task_service import auto_generate_tasks_for_seed, calculate_task_metrics
 from app.logging_config import setup_logging
@@ -169,25 +167,39 @@ async def print_labels(request: Request, seed_ids: Optional[List[int]] = Form(No
 
 
 @app.get("/tasks", response_class=HTMLResponse)
-async def tasks_list(request: Request, filter: Optional[str] = None):
+async def tasks_list(request: Request, filter: Optional[str] = None, priority: Optional[str] = None):
     """List all tasks with optional filtering."""
     tasks = get_all_tasks()
 
-    if filter == "pending":
-        tasks = [t for t in tasks if t['status'] == TaskStatus.PENDING]
+    normalized_tasks = []
+    for task in tasks:
+        task['status'] = TaskStatus.normalize(task['status'])
+        task['priority'] = task.get('priority') or TaskPriority.MEDIUM
+        normalized_tasks.append(task)
+
+    tasks = normalized_tasks
+
+    if filter == "todo":
+        tasks = [t for t in tasks if t['status'] == TaskStatus.TODO]
     elif filter == "in_progress":
         tasks = [t for t in tasks if t['status'] == TaskStatus.IN_PROGRESS]
     elif filter == "done":
         tasks = [t for t in tasks if t['status'] == TaskStatus.DONE]
+    elif filter == "cancelled":
+        tasks = [t for t in tasks if t['status'] == TaskStatus.CANCELLED]
     elif filter == "overdue":
         today = datetime.now().date()
-        tasks = [t for t in tasks if t['status'] != TaskStatus.DONE and t['due_date'] and
+        tasks = [t for t in tasks if t['status'] not in (TaskStatus.DONE, TaskStatus.CANCELLED) and t['due_date'] and
                 datetime.fromisoformat(t['due_date']).date() < today]
+
+    if priority in (TaskPriority.LOW, TaskPriority.MEDIUM, TaskPriority.HIGH):
+        tasks = [t for t in tasks if t.get('priority') == priority]
 
     return templates.TemplateResponse("tasks.html", {
         "request": request,
         "tasks": tasks,
-        "filter": filter
+        "filter": filter,
+        "priority_filter": priority
     })
 
 
@@ -197,9 +209,12 @@ async def update_task_status(
     status: str = Form(...)
 ):
     """Update task status."""
-    updates = {'status': status}
-    if status == TaskStatus.DONE:
+    normalized_status = TaskStatus.normalize(status)
+    updates = {'status': normalized_status}
+    if normalized_status == TaskStatus.DONE:
         updates['completed_at'] = datetime.now().isoformat()
+    elif normalized_status in (TaskStatus.TODO, TaskStatus.IN_PROGRESS, TaskStatus.CANCELLED):
+        updates['completed_at'] = None
     update_task(task_id, updates)
     return RedirectResponse(url="/tasks", status_code=303)
 
@@ -208,6 +223,52 @@ async def update_task_status(
 async def delete_task_post(task_id: int):
     """Delete a task."""
     delete_task(task_id)
+    return RedirectResponse(url="/tasks", status_code=303)
+
+
+@app.post("/tasks/bulk-update")
+async def bulk_update_tasks(
+    request: Request,
+    task_ids: Optional[List[int]] = Form(None),
+    status: Optional[str] = Form(None),
+    priority: Optional[str] = Form(None),
+    due_date: Optional[str] = Form(None)
+):
+    """Bulk update selected tasks for status/priority/due dates."""
+    if not task_ids:
+        tasks = get_all_tasks()
+        normalized_tasks = []
+        for task in tasks:
+            task['status'] = TaskStatus.normalize(task['status'])
+            task['priority'] = task.get('priority') or TaskPriority.MEDIUM
+            normalized_tasks.append(task)
+        return templates.TemplateResponse("tasks.html", {
+            "request": request,
+            "tasks": normalized_tasks,
+            "filter": None,
+            "priority_filter": None,
+            "error_message": "Select at least one task to apply bulk changes."
+        }, status_code=400)
+
+    updates = {}
+    if status:
+        normalized_status = TaskStatus.normalize(status)
+        updates['status'] = normalized_status
+        if normalized_status == TaskStatus.DONE:
+            updates['completed_at'] = datetime.now().isoformat()
+        else:
+            updates['completed_at'] = None
+    if priority:
+        updates['priority'] = priority
+    if due_date:
+        updates['due_date'] = due_date
+
+    if not updates:
+        return RedirectResponse(url="/tasks", status_code=303)
+
+    for task_id in task_ids:
+        update_task(task_id, updates)
+
     return RedirectResponse(url="/tasks", status_code=303)
 
 

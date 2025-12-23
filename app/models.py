@@ -15,9 +15,32 @@ class TaskType(str, Enum):
 
 
 class TaskStatus(str, Enum):
-    PENDING = "Pending"
+    TODO = "To Do"
+    PENDING = "To Do"  # backward compatible alias
     IN_PROGRESS = "In Progress"
     DONE = "Done"
+    CANCELLED = "Cancelled"
+
+    @classmethod
+    def normalize(cls, value: str) -> str:
+        if not value:
+            return cls.TODO
+        normalized = value.value if isinstance(value, Enum) else str(value).strip()
+        lower = normalized.lower()
+        mapping = {
+            "pending": cls.TODO.value,
+            cls.TODO.lower(): cls.TODO.value,
+            cls.IN_PROGRESS.lower(): cls.IN_PROGRESS.value,
+            cls.DONE.lower(): cls.DONE.value,
+            cls.CANCELLED.lower(): cls.CANCELLED.value,
+        }
+        return mapping.get(lower, normalized)
+
+
+class TaskPriority(str, Enum):
+    LOW = "Low"
+    MEDIUM = "Medium"
+    HIGH = "High"
 
 
 class Seed(Base):
@@ -92,6 +115,7 @@ class Task(Base):
     seed_id = Column(Integer, ForeignKey("seeds.id", ondelete="CASCADE"), nullable=False)
     task_type = Column(String, nullable=False)
     status = Column(String, nullable=False)
+    priority = Column(String, nullable=False, default="Medium")
     due_date = Column(String)
     completed_at = Column(String)
     description = Column(String)
@@ -105,7 +129,8 @@ class Task(Base):
         id: Optional[int] = None,
         seed_id: int = 0,
         task_type: str = TaskType.PACK,
-        status: str = TaskStatus.PENDING,
+        status: str = TaskStatus.TODO,
+        priority: str = TaskPriority.MEDIUM,
         due_date: Optional[str] = None,
         completed_at: Optional[str] = None,
         description: str = "",
@@ -115,7 +140,8 @@ class Task(Base):
         self.id = id
         self.seed_id = seed_id
         self.task_type = task_type
-        self.status = status
+        self.status = TaskStatus.normalize(status)
+        self.priority = priority or TaskPriority.MEDIUM
         self.due_date = due_date
         self.completed_at = completed_at
         self.description = description

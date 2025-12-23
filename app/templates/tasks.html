@@ -8,49 +8,108 @@
         <h2>Tasks</h2>
         <div class="filter-buttons">
             <a href="/tasks" class="btn {% if not filter %}btn-active{% endif %}">All</a>
-            <a href="/tasks?filter=pending" class="btn {% if filter == 'pending' %}btn-active{% endif %}">Pending</a>
+            <a href="/tasks?filter=todo" class="btn {% if filter == 'todo' %}btn-active{% endif %}">To Do</a>
             <a href="/tasks?filter=in_progress" class="btn {% if filter == 'in_progress' %}btn-active{% endif %}">In Progress</a>
             <a href="/tasks?filter=done" class="btn {% if filter == 'done' %}btn-active{% endif %}">Done</a>
+            <a href="/tasks?filter=cancelled" class="btn {% if filter == 'cancelled' %}btn-active{% endif %}">Cancelled</a>
             <a href="/tasks?filter=overdue" class="btn {% if filter == 'overdue' %}btn-active{% endif %}">Overdue</a>
         </div>
+        <form method="get" class="filter-select">
+            {% if filter %}
+            <input type="hidden" name="filter" value="{{ filter }}">
+            {% endif %}
+            <label for="priority-filter" class="sr-only">Priority</label>
+            <select id="priority-filter" name="priority" onchange="this.form.submit()">
+                <option value="" {% if not priority_filter %}selected{% endif %}>All priorities</option>
+                <option value="High" {% if priority_filter == 'High' %}selected{% endif %}>High</option>
+                <option value="Medium" {% if priority_filter == 'Medium' %}selected{% endif %}>Medium</option>
+                <option value="Low" {% if priority_filter == 'Low' %}selected{% endif %}>Low</option>
+            </select>
+        </form>
     </div>
 
+    {% if error_message %}
+    <div class="error-message">{{ error_message }}</div>
+    {% endif %}
+
     {% if tasks %}
-    <table class="data-table">
-        <thead>
-            <tr>
-                <th>Task Type</th>
-                <th>Seed</th>
-                <th>Status</th>
-                <th>Due Date</th>
-                <th>Description</th>
-                <th>Actions</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for task in tasks %}
-            <tr>
-                <td><span class="badge badge-{{ task.task_type.lower() }}">{{ task.task_type }}</span></td>
-                <td><a href="/seeds/{{ task.seed_id }}" class="link">{{ task.seed_name }}</a></td>
-                <td><span class="badge badge-{{ task.status.lower().replace(' ', '-') }}">{{ task.status }}</span></td>
-                <td>{{ task.due_date[:10] if task.due_date else 'N/A' }}</td>
-                <td>{{ task.description }}</td>
-                <td>
-                    <form method="post" action="/tasks/{{ task.id }}/update-status" style="display: inline;">
-                        <select name="status" onchange="this.form.submit()">
-                            <option value="Pending" {% if task.status == 'Pending' %}selected{% endif %}>Pending</option>
-                            <option value="In Progress" {% if task.status == 'In Progress' %}selected{% endif %}>In Progress</option>
-                            <option value="Done" {% if task.status == 'Done' %}selected{% endif %}>Done</option>
-                        </select>
-                    </form>
-                    <form method="post" action="/tasks/{{ task.id }}/delete" style="display: inline;">
-                        <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Delete this task?')">Delete</button>
-                    </form>
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+    <form method="post" action="/tasks/bulk-update">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th aria-label="Select tasks"></th>
+                    <th>Task Type</th>
+                    <th>Seed</th>
+                    <th>Priority</th>
+                    <th>Status</th>
+                    <th>Due Date</th>
+                    <th>Description</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for task in tasks %}
+                <tr>
+                    <td>
+                        <input type="checkbox" name="task_ids" value="{{ task.id }}" aria-label="Select task {{ task.description }}">
+                    </td>
+                    <td><span class="badge badge-{{ task.task_type.lower() }}">{{ task.task_type }}</span></td>
+                    <td><a href="/seeds/{{ task.seed_id }}" class="link">{{ task.seed_name }}</a></td>
+                    <td><span class="badge badge-priority-{{ task.priority.lower() }}">{{ task.priority }}</span></td>
+                    <td><span class="badge badge-{{ task.status.lower().replace(' ', '-') }}">{{ task.status }}</span></td>
+                    <td>{{ task.due_date[:10] if task.due_date else 'N/A' }}</td>
+                    <td>{{ task.description }}</td>
+                    <td>
+                        <form method="post" action="/tasks/{{ task.id }}/update-status" style="display: inline;">
+                            <select name="status" aria-label="Update status for {{ task.description or ('task ' ~ task.id) }}" onchange="this.form.submit()">
+                                <option value="To Do" {% if task.status == 'To Do' %}selected{% endif %}>To Do</option>
+                                <option value="In Progress" {% if task.status == 'In Progress' %}selected{% endif %}>In Progress</option>
+                                <option value="Done" {% if task.status == 'Done' %}selected{% endif %}>Done</option>
+                                <option value="Cancelled" {% if task.status == 'Cancelled' %}selected{% endif %}>Cancelled</option>
+                            </select>
+                        </form>
+                        <form method="post" action="/tasks/{{ task.id }}/delete" style="display: inline;">
+                            <button type="submit" class="btn btn-sm btn-danger" aria-label="Delete task {{ task.description or ('task ' ~ task.id) }}" onclick="return confirm('Delete this task?')">Delete</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        <div class="bulk-actions card">
+            <div class="bulk-row">
+                <div class="form-group">
+                    <label for="bulk-status">Set status</label>
+                    <select id="bulk-status" name="status">
+                        <option value="">No change</option>
+                        <option value="To Do">To Do</option>
+                        <option value="In Progress">In Progress</option>
+                        <option value="Done">Done</option>
+                        <option value="Cancelled">Cancelled</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="bulk-priority">Set priority</label>
+                    <select id="bulk-priority" name="priority">
+                        <option value="">No change</option>
+                        <option value="High">High</option>
+                        <option value="Medium">Medium</option>
+                        <option value="Low">Low</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="bulk-due">Set due date</label>
+                    <input type="date" id="bulk-due" name="due_date">
+                </div>
+                <div class="form-group">
+                    <label class="sr-only" for="apply-bulk">Apply bulk</label>
+                    <button id="apply-bulk" type="submit" class="btn btn-primary">Apply to Selected</button>
+                </div>
+            </div>
+            <p class="helper-text">Bulk actions help librarians quickly update status, priority, and due dates for many tasks at once.</p>
+        </div>
+    </form>
     {% else %}
     <div class="empty-state">
         <p>No tasks found.</p>

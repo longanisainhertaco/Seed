@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Seed Library Task Tracker{% endblock %}</title>
     <link rel="stylesheet" href="/static/css/style.css">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
     <nav class="navbar">
@@ -18,6 +17,9 @@
                 <li><a href="/inventory" class="nav-link">Inventory</a></li>
                 <li><a href="/import" class="nav-link">Import</a></li>
             </ul>
+            <button id="contrast-toggle" class="btn btn-sm" type="button" aria-pressed="false">
+                High Contrast
+            </button>
         </div>
     </nav>
 
@@ -30,5 +32,20 @@
             <p>&copy; 2024 Seed Library Task Tracker - Running on 127.0.0.1</p>
         </div>
     </footer>
+    <script>
+        (function() {
+            const toggle = document.getElementById('contrast-toggle');
+            const stored = localStorage.getItem('seedlib-contrast') === 'high';
+            if (stored) {
+                document.body.classList.add('high-contrast');
+                toggle?.setAttribute('aria-pressed', 'true');
+            }
+            toggle?.addEventListener('click', () => {
+                const isHigh = document.body.classList.toggle('high-contrast');
+                toggle.setAttribute('aria-pressed', isHigh.toString());
+                localStorage.setItem('seedlib-contrast', isHigh ? 'high' : 'normal');
+            });
+        })();
+    </script>
 </body>
 </html>

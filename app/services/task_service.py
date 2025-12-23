@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, date
 from typing import List, Dict, Any
 import logging
-from app.models import Task, TaskType, TaskStatus
+from app.models import Task, TaskType, TaskStatus, TaskPriority
 from app.database import create_task, get_tasks_by_seed, get_seed_by_id, get_all_tasks
 
 logger = logging.getLogger(__name__)
@@ -15,7 +15,10 @@ def auto_generate_tasks_for_seed(seed_id: int) -> List[int]:
         return []
 
     existing_tasks = get_tasks_by_seed(seed_id)
-    existing_task_types = {task['task_type'] for task in existing_tasks if task['status'] != TaskStatus.DONE}
+    existing_task_types = {
+        task['task_type'] for task in existing_tasks
+        if TaskStatus.normalize(task['status']) not in (TaskStatus.DONE, TaskStatus.CANCELLED)
+    }
 
     task_ids = []
     today = datetime.now().date()
@@ -24,7 +27,8 @@ def auto_generate_tasks_for_seed(seed_id: int) -> List[int]:
         pack_task = Task(
             seed_id=seed_id,
             task_type=TaskType.PACK,
-            status=TaskStatus.PENDING,
+            status=TaskStatus.TODO,
+            priority=TaskPriority.MEDIUM,
             due_date=(today + timedelta(days=7)).isoformat(),
             description=f"Pack {seed.get('name', 'seed')} into packets"
         )
@@ -36,7 +40,8 @@ def auto_generate_tasks_for_seed(seed_id: int) -> List[int]:
         catalog_task = Task(
             seed_id=seed_id,
             task_type=TaskType.CATALOG,
-            status=TaskStatus.PENDING,
+            status=TaskStatus.TODO,
+            priority=TaskPriority.MEDIUM,
             due_date=(today + timedelta(days=3)).isoformat(),
             description=f"Catalog {seed.get('name', 'seed')} in the system"
         )
@@ -48,7 +53,8 @@ def auto_generate_tasks_for_seed(seed_id: int) -> List[int]:
         reorder_task = Task(
             seed_id=seed_id,
             task_type=TaskType.REORDER,
-            status=TaskStatus.PENDING,
+            status=TaskStatus.TODO,
+            priority=TaskPriority.HIGH,
             due_date=(today + timedelta(days=5)).isoformat(),
             description=f"Reorder {seed.get('name', 'seed')} from {seed.get('seed_source', 'supplier')}"
         )
@@ -65,15 +71,17 @@ def calculate_task_metrics() -> Dict[str, Any]:
     today = datetime.now().date()
 
     total = len(tasks)
-    done = sum(1 for t in tasks if t['status'] == TaskStatus.DONE)
-    in_progress = sum(1 for t in tasks if t['status'] == TaskStatus.IN_PROGRESS)
-    pending = sum(1 for t in tasks if t['status'] == TaskStatus.PENDING)
+    done = sum(1 for t in tasks if TaskStatus.normalize(t['status']) == TaskStatus.DONE)
+    in_progress = sum(1 for t in tasks if TaskStatus.normalize(t['status']) == TaskStatus.IN_PROGRESS)
+    todo = sum(1 for t in tasks if TaskStatus.normalize(t['status']) == TaskStatus.TODO)
+    cancelled = sum(1 for t in tasks if TaskStatus.normalize(t['status']) == TaskStatus.CANCELLED)
 
     overdue = 0
     due_today = 0
 
     for task in tasks:
-        if task['status'] != TaskStatus.DONE and task['due_date']:
+        normalized_status = TaskStatus.normalize(task['status'])
+        if normalized_status not in (TaskStatus.DONE, TaskStatus.CANCELLED) and task['due_date']:
             try:
                 due_date = datetime.fromisoformat(task['due_date']).date()
                 if due_date < today:
@@ -89,7 +97,9 @@ def calculate_task_metrics() -> Dict[str, Any]:
         'total': total,
         'done': done,
         'in_progress': in_progress,
-        'pending': pending,
+        'pending': todo,
+        'todo': todo,
+        'cancelled': cancelled,
         'overdue': overdue,
         'due_today': due_today,
         'completion_percentage': completion_percentage
