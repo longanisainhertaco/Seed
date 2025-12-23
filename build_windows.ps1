@@ -16,7 +16,7 @@ Write-Host "Activating virtual environment..." -ForegroundColor Yellow
 Write-Host "Installing dependencies..." -ForegroundColor Yellow
 pip install -r requirements.txt
 
-# Create PyInstaller spec file if it doesn't exist
+# Create PyInstaller spec file with bundled templates and static assets
 $specContent = @"
 # -*- mode: python ; coding: utf-8 -*-
 
@@ -24,7 +24,7 @@ block_cipher = None
 
 a = Analysis(
     ['app/main.py'],
-    pathex=[],
+    pathex=['.'],
     binaries=[],
     datas=[
         ('app/templates', 'app/templates'),
@@ -68,7 +68,7 @@ exe = EXE(
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=True,
+    console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
@@ -81,9 +81,9 @@ exe = EXE(
 Write-Host "Creating PyInstaller spec file..." -ForegroundColor Yellow
 $specContent | Out-File -FilePath "seed_tracker.spec" -Encoding UTF8
 
-# Build with PyInstaller
+# Build with PyInstaller (one-file, windowed)
 Write-Host "Building executable with PyInstaller..." -ForegroundColor Yellow
-pyinstaller seed_tracker.spec --clean --noconfirm
+pyinstaller seed_tracker.spec --clean --noconfirm --onefile --windowed
 
 # Check if build was successful
 if (Test-Path "dist/SeedLibraryTaskTracker.exe") {
