@@ -27,7 +27,7 @@ def auto_generate_tasks_for_seed(seed_id: int) -> List[int]:
             task_type=TaskType.PACK,
             status=TaskStatus.TODO,
             priority=TaskPriority.MEDIUM,
-            due_date=(today + timedelta(days=7)).isoformat(),
+            due_date=today + timedelta(days=7),
             description=f"Pack {seed.get('name', 'seed')} into packets"
         )
         task_id = _safe_create_task(pack_task)
@@ -41,7 +41,7 @@ def auto_generate_tasks_for_seed(seed_id: int) -> List[int]:
             task_type=TaskType.CATALOG,
             status=TaskStatus.TODO,
             priority=TaskPriority.MEDIUM,
-            due_date=(today + timedelta(days=3)).isoformat(),
+            due_date=today + timedelta(days=3),
             description=f"Catalog {seed.get('name', 'seed')} in the system"
         )
         task_id = _safe_create_task(catalog_task)
@@ -55,7 +55,7 @@ def auto_generate_tasks_for_seed(seed_id: int) -> List[int]:
             task_type=TaskType.REORDER,
             status=TaskStatus.TODO,
             priority=TaskPriority.HIGH,
-            due_date=(today + timedelta(days=5)).isoformat(),
+            due_date=today + timedelta(days=5),
             description=f"Reorder {seed.get('name', 'seed')} from {seed.get('seed_source', 'supplier')}"
         )
         task_id = _safe_create_task(reorder_task)
