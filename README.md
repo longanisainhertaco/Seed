@@ -8,7 +8,7 @@ A comprehensive Windows desktop application for managing seed libraries with aut
 - **SQLite Database** - Lightweight, single-file database storage
 - **Excel Import** - Import seed data from .xlsx files with automatic field mapping
 - **Auto-Generated Tasks** - Automatically creates Pack, Catalog, and Reorder tasks based on seed dates
-- **Task Management** - Track task status (Pending, In Progress, Done) with due dates
+- **Task Management** - Track task status (To Do, In Progress, Done, Cancelled) with Low/Medium/High priority and due dates
 - **Metrics Dashboard** - Real-time metrics showing total/done/overdue/due-today/in-progress tasks with completion percentages
 - **Inventory Management** - Track current amounts with BuyMore and Extra flags
 - **Inventory Adjustments** - Complete history of inventory changes
@@ -125,7 +125,7 @@ The executable can be distributed and run without Python installation.
 ### Managing Tasks
 
 - View all tasks on the **Tasks** page
-- Filter by: All, Pending, In Progress, Done, Overdue
+- Filter by: All, To Do, In Progress, Done, Cancelled, Overdue + priority
 - Update task status with dropdown menus
 - Tasks automatically mark completion date when set to Done
 

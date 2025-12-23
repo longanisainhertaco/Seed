@@ -32,9 +32,9 @@ class TestTaskService(unittest.TestCase):
 
         mock_tasks = [
             {'status': TaskStatus.DONE, 'due_date': tomorrow},
-            {'status': TaskStatus.PENDING, 'due_date': yesterday},
+            {'status': TaskStatus.TODO, 'due_date': yesterday},
             {'status': TaskStatus.IN_PROGRESS, 'due_date': tomorrow},
-            {'status': TaskStatus.PENDING, 'due_date': today.date().isoformat()},
+            {'status': TaskStatus.TODO, 'due_date': today.date().isoformat()},
         ]
 
         with patch('app.services.task_service.get_all_tasks', return_value=mock_tasks):

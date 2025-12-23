@@ -85,7 +85,7 @@ class TestDatabase(unittest.TestCase):
         task = Task(
             seed_id=seed_id,
             task_type=TaskType.PACK,
-            status=TaskStatus.PENDING,
+            status=TaskStatus.TODO,
             description="Pack carrot seeds"
         )
         task_id = database.create_task(task)
@@ -94,6 +94,7 @@ class TestDatabase(unittest.TestCase):
         tasks = database.get_tasks_by_seed(seed_id)
         self.assertEqual(len(tasks), 1)
         self.assertEqual(tasks[0]['task_type'], TaskType.PACK)
+        self.assertEqual(tasks[0]['priority'], "Medium")
 
     def test_inventory_operations(self):
         """Test inventory operations."""
