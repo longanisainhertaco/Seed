@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+
+{% block title %}Print Labels - Seed Library{% endblock %}
+
+{% block content %}
+<div class="print-page">
+    <div class="print-controls">
+        <h2>Seed Labels</h2>
+        <div class="page-actions">
+            <a href="/seeds" class="btn btn-sm">Back to Seeds</a>
+            <button class="btn btn-primary btn-sm" onclick="window.print(); return false;">Print</button>
+        </div>
+    </div>
+
+    <div class="label-grid">
+        {% for seed in seeds %}
+        <div class="label-card">
+            <div class="label-title">{{ seed.name }}</div>
+            <div class="label-type">{{ seed.type }}</div>
+            {% if seed.amount_text %}
+            <div class="label-meta"><strong>Amount:</strong> {{ seed.amount_text }}</div>
+            {% endif %}
+            {% if seed.seed_source %}
+            <div class="label-meta"><strong>Source:</strong> {{ seed.seed_source }}</div>
+            {% endif %}
+            {% if seed.date_cataloged %}
+            <div class="label-meta"><strong>Cataloged:</strong> {{ seed.date_cataloged[:10] }}</div>
+            {% endif %}
+            {% if seed.date_ordered %}
+            <div class="label-meta"><strong>Ordered:</strong> {{ seed.date_ordered[:10] }}</div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

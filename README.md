@@ -82,10 +82,12 @@ Seed/
 
 ## Building Windows Executable
 
-Run the PowerShell build script:
+Run the PowerShell build script (packs everything into a double-clickable windowed executable):
 
 ```powershell
 .\build_windows.ps1
+# or run PyInstaller directly if you already have dependencies installed:
+pyinstaller seed_tracker.spec --clean --noconfirm --onefile --windowed
 ```
 
 This will:
