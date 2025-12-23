@@ -40,6 +40,13 @@ def import_seeds_from_excel(file_path: str, mapping: Dict[str, str]) -> Dict[str
             if not mapping.get(required_field):
                 mapping_errors.append(f"Mapping for required field '{required_field}' is missing.")
 
+        # Avoid mapping the same source column multiple times
+        provided_columns = [col for col in mapping.values() if col]
+        duplicates = {col for col in provided_columns if provided_columns.count(col) > 1}
+        if duplicates:
+            for dup in duplicates:
+                mapping_errors.append(f"Column '{dup}' is mapped to multiple fields. Please choose unique columns.")
+
         for target_field, source_column in mapping.items():
             if not source_column:
                 continue

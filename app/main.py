@@ -6,10 +6,13 @@ from datetime import datetime
 import logging
 import os
 import shutil
+import tempfile
+from pathlib import Path
 
 
 import pandas as pd
 import json
+from pydantic import ValidationError
 
 from typing import Optional, List
 
@@ -25,6 +28,13 @@ from app.models import Seed, Task, TaskStatus, TaskPriority, InventoryAdjustment
 from app.services.import_service import import_seeds_from_excel
 from app.services.task_service import auto_generate_tasks_for_seed, calculate_task_metrics
 from app.logging_config import setup_logging
+from app.config import (
+    MAX_IMPORT_BYTES,
+    ALLOWED_IMPORT_CONTENT_TYPES,
+    ALLOWED_IMPORT_EXTENSIONS,
+    DATA_DIR,
+)
+from app.schemas import SeedUpdate, InventoryUpdate
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -36,6 +46,48 @@ templates = Jinja2Templates(directory="app/templates")
 
 init_database()
 logger.info("Seed Library Task Tracker started")
+
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start = datetime.now()
+    response = await call_next(request)
+    duration_ms = (datetime.now() - start).total_seconds() * 1000
+    logger.info(
+        "%s %s -> %s (%.2f ms)",
+        request.method,
+        request.url.path,
+        response.status_code,
+        duration_ms,
+    )
+    return response
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    return templates.TemplateResponse(
+        "error.html",
+        {
+            "request": request,
+            "status_code": exc.status_code,
+            "message": exc.detail,
+        },
+        status_code=exc.status_code,
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logger.exception("Unhandled error for %s %s", request.method, request.url.path)
+    return templates.TemplateResponse(
+        "error.html",
+        {
+            "request": request,
+            "status_code": 500,
+            "message": "An unexpected error occurred. Please try again.",
+        },
+        status_code=500,
+    )
 
 
 def get_seed_category_counts(seeds: Optional[list] = None) -> dict:
@@ -100,6 +152,7 @@ async def seed_detail(request: Request, seed_id: int):
 
 @app.post("/seeds/{seed_id}/update")
 async def update_seed_post(
+    request: Request,
     seed_id: int,
     name: str = Form(...),
     type: str = Form(...),
@@ -112,18 +165,38 @@ async def update_seed_post(
     amount_text: str = Form("")
 ):
     """Update seed information."""
-    updates = {
-        'name': name,
-        'type': type,
-        'packets_made': packets_made,
-        'seed_source': seed_source,
-        'date_ordered': date_ordered if date_ordered else None,
-        'date_finished': date_finished if date_finished else None,
-        'date_cataloged': date_cataloged if date_cataloged else None,
-        'date_ran_out': date_ran_out if date_ran_out else None,
-        'amount_text': amount_text
-    }
-    update_seed(seed_id, updates)
+    try:
+        payload = SeedUpdate(
+            name=name,
+            type=type,
+            packets_made=packets_made,
+            seed_source=seed_source,
+            date_ordered=date_ordered,
+            date_finished=date_finished,
+            date_cataloged=date_cataloged,
+            date_ran_out=date_ran_out,
+            amount_text=amount_text,
+        )
+    except ValidationError as exc:
+        seed = get_seed_by_id(seed_id)
+        tasks = get_tasks_by_seed(seed_id)
+        inventory = get_or_create_inventory(seed_id)
+        adjustments = get_inventory_adjustments(seed_id)
+        return templates.TemplateResponse(
+            "seed_detail.html",
+            {
+                "request": request,
+                "seed": seed,
+                "tasks": tasks,
+                "inventory": inventory,
+                "adjustments": adjustments,
+                "error_message": "Please correct the highlighted fields.",
+                "validation_errors": exc.errors(),
+            },
+            status_code=400,
+        )
+
+    update_seed(seed_id, payload.model_dump(exclude_none=True))
     auto_generate_tasks_for_seed(seed_id)
     return RedirectResponse(url=f"/seeds/{seed_id}", status_code=303)
 
@@ -288,25 +361,37 @@ async def import_page(request: Request):
 @app.post("/import/upload", response_class=HTMLResponse)
 async def import_upload(request: Request, file: UploadFile = File(...)):
     """Upload Excel file and read headers for mapping."""
-    if not file.filename.endswith(('.xlsx', '.xls')):
+    ext = Path(file.filename).suffix.lower()
+    content_type = file.content_type or ""
+    if ext not in ALLOWED_IMPORT_EXTENSIONS or (
+        content_type and content_type not in ALLOWED_IMPORT_CONTENT_TYPES
+    ):
         return templates.TemplateResponse("import.html", {
             "request": request,
             "result": {
                 'success': False,
-                'error': 'Please upload an Excel file (.xlsx or .xls)'
+                'error': 'Please upload an Excel file (.xlsx or .xls).'
             },
             "columns": None,
             "file_path": None,
             "mapping_errors": None,
             "selected_mapping": {}
-        })
+        }, status_code=400)
 
-    os.makedirs("data", exist_ok=True)
-    file_path = os.path.join("data", f"import_{int(datetime.now().timestamp())}_{file.filename}")
+    temp_dir = Path(tempfile.mkdtemp(prefix="seed_import_", dir=DATA_DIR))
+    file_path = temp_dir / Path(file.filename).name
 
     try:
+        uploaded_size = 0
         with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+            while True:
+                chunk = file.file.read(1024 * 1024)
+                if not chunk:
+                    break
+                uploaded_size += len(chunk)
+                if uploaded_size > MAX_IMPORT_BYTES:
+                    raise ValueError(f"File exceeds limit of {MAX_IMPORT_BYTES // (1024 * 1024)} MB.")
+                buffer.write(chunk)
 
         df = pd.read_excel(file_path, nrows=0)
         columns = [col.strip() for col in df.columns]
@@ -315,26 +400,41 @@ async def import_upload(request: Request, file: UploadFile = File(...)):
             "request": request,
             "result": None,
             "columns": columns,
-            "file_path": file_path,
+            "file_path": str(file_path),
             "mapping_errors": None,
             "selected_mapping": {}
         })
 
-    except Exception as e:
-        logger.error(f"Import failed: {str(e)}")
-        if os.path.exists(file_path):
-            os.remove(file_path)
+    except ValueError as exc:
+        logger.warning("Import upload rejected: %s", exc)
+        shutil.rmtree(temp_dir, ignore_errors=True)
         return templates.TemplateResponse("import.html", {
             "request": request,
             "result": {
                 'success': False,
-                'error': str(e)
+                'error': str(exc)
             },
             "columns": None,
             "file_path": None,
             "mapping_errors": None,
             "selected_mapping": {}
-        })
+        }, status_code=400)
+    except Exception as e:
+        logger.error(f"Import failed: {str(e)}")
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        return templates.TemplateResponse("import.html", {
+            "request": request,
+            "result": {
+                'success': False,
+                'error': 'Unable to read the uploaded file.'
+            },
+            "columns": None,
+            "file_path": None,
+            "mapping_errors": None,
+            "selected_mapping": {}
+        }, status_code=400)
+    finally:
+        file.file.close()
 
 
 @app.post("/import/confirm", response_class=HTMLResponse)
@@ -352,7 +452,10 @@ async def import_confirm(
     amount_text_column: Optional[str] = Form(None)
 ):
     """Confirm import with selected column mappings."""
-    if not os.path.exists(file_path):
+    file_path_obj = Path(file_path).resolve()
+    data_root = DATA_DIR.resolve()
+
+    if not file_path_obj.exists() or not file_path_obj.is_file() or not file_path_obj.is_relative_to(data_root):
         return templates.TemplateResponse("import.html", {
             "request": request,
             "result": {
@@ -380,15 +483,15 @@ async def import_confirm(
     selected_mapping = {k: v for k, v in mapping.items() if v}
 
     try:
-        result = import_seeds_from_excel(file_path, mapping)
+        result = import_seeds_from_excel(str(file_path_obj), mapping)
 
         if result.get('success'):
             for seed in get_all_seeds():
                 auto_generate_tasks_for_seed(seed['id'])
             try:
-                os.remove(file_path)
+                shutil.rmtree(file_path_obj.parent, ignore_errors=True)
             except OSError:
-                logger.warning(f"Temporary file {file_path} could not be removed.")
+                logger.warning(f"Temporary file {file_path_obj} could not be removed.")
 
             return templates.TemplateResponse("import.html", {
                 "request": request,
@@ -400,22 +503,22 @@ async def import_confirm(
             })
 
         if result.get('mapping_errors'):
-            df = pd.read_excel(file_path, nrows=0)
+            df = pd.read_excel(file_path_obj, nrows=0)
             columns = [col.strip() for col in df.columns]
 
             return templates.TemplateResponse("import.html", {
                 "request": request,
                 "result": None,
                 "columns": columns,
-                "file_path": file_path,
+                "file_path": str(file_path_obj),
                 "mapping_errors": result.get('mapping_errors', []),
                 "selected_mapping": selected_mapping
             })
 
         try:
-            os.remove(file_path)
+            shutil.rmtree(file_path_obj.parent, ignore_errors=True)
         except OSError:
-            logger.warning(f"Temporary file {file_path} could not be removed.")
+            logger.warning(f"Temporary file {file_path_obj} could not be removed.")
 
         return templates.TemplateResponse("import.html", {
             "request": request,
@@ -428,6 +531,7 @@ async def import_confirm(
 
     except Exception as e:
         logger.error(f"Import failed: {str(e)}")
+        shutil.rmtree(file_path_obj.parent, ignore_errors=True)
         return templates.TemplateResponse("import.html", {
             "request": request,
             "result": {
@@ -460,6 +564,7 @@ async def inventory_list(request: Request, filter: Optional[str] = None):
 
 @app.post("/inventory/{seed_id}/update")
 async def update_inventory_post(
+    request: Request,
     seed_id: int,
     current_amount: str = Form(""),
     buy_more: bool = Form(False),
@@ -470,19 +575,39 @@ async def update_inventory_post(
     inventory = get_or_create_inventory(seed_id)
     old_amount = inventory.get('current_amount', '')
 
-    updates = {
-        'current_amount': current_amount,
-        'buy_more': buy_more,
-        'extra': extra,
-        'notes': notes
-    }
-    update_inventory(seed_id, updates)
+    try:
+        payload = InventoryUpdate(
+            current_amount=current_amount,
+            buy_more=buy_more,
+            extra=extra,
+            notes=notes,
+        )
+    except ValidationError as exc:
+        seed = get_seed_by_id(seed_id)
+        tasks = get_tasks_by_seed(seed_id)
+        adjustments = get_inventory_adjustments(seed_id)
+        return templates.TemplateResponse(
+            "seed_detail.html",
+            {
+                "request": request,
+                "seed": seed,
+                "tasks": tasks,
+                "inventory": inventory,
+                "adjustments": adjustments,
+                "error_message": "Inventory update failed validation.",
+                "validation_errors": exc.errors(),
+            },
+            status_code=400,
+        )
 
-    if old_amount != current_amount:
+    update_inventory(seed_id, payload.model_dump())
+    new_amount = payload.current_amount or ""
+
+    if old_amount != new_amount:
         adjustment = InventoryAdjustment(
             seed_id=seed_id,
             adjustment_type='Manual Update',
-            amount_change=f"From '{old_amount}' to '{current_amount}'",
+            amount_change=f"From '{old_amount}' to '{new_amount}'",
             reason='Inventory update from UI'
         )
         create_inventory_adjustment(adjustment)

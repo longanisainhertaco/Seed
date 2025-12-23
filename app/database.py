@@ -1,16 +1,19 @@
 import logging
+import os
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, date
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import Session, sessionmaker, joinedload
 
+from app.config import DATABASE_PATH as CONFIGURED_DATABASE_PATH
 from app.models import Base, Seed, Task, TaskStatus, Inventory, InventoryAdjustment
 
 logger = logging.getLogger(__name__)
 
-DATABASE_PATH = "seed_library.db"
+DATABASE_PATH = CONFIGURED_DATABASE_PATH
 
 _engine = None
 SessionLocal = None
@@ -64,11 +67,33 @@ def get_session() -> Session:
         session.close()
 
 
+def run_migrations():
+    """Run Alembic migrations if configuration is present."""
+    try:
+        from alembic import command
+        from alembic.config import Config
+
+        config_path = Path(__file__).resolve().parents[1] / "alembic.ini"
+        if not config_path.exists():
+            logger.info("Alembic configuration not found; skipping migrations.")
+            return
+
+        alembic_cfg = Config(str(config_path))
+        alembic_cfg.set_main_option("script_location", str(Path(__file__).resolve().parents[1] / "alembic"))
+        alembic_cfg.set_main_option("sqlalchemy.url", f"sqlite:///{DATABASE_PATH}")
+        command.upgrade(alembic_cfg, "head")
+        logger.info("Alembic migrations applied")
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("Skipping migrations: %s", exc)
+
+
 def init_database():
     """Initialize database tables using ORM metadata."""
     engine = get_engine()
+    run_migrations()
     Base.metadata.create_all(bind=engine)
     _ensure_priority_column(engine)
+    _ensure_indexes(engine)
     _migrate_task_status_labels(engine)
     logger.info("Database initialized successfully via ORM")
 
@@ -82,10 +107,89 @@ def _ensure_priority_column(engine):
             logger.info("Added priority column to tasks table")
 
 
+def _ensure_indexes(engine):
+    """Create helpful indexes and constraints for existing databases."""
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_tasks_seed_id ON tasks(seed_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_tasks_due_date ON tasks(due_date)"))
+            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_seed_task_type ON tasks(seed_id, task_type)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_inventory_seed_id ON inventory(seed_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_inventory_adjustments_seed_id ON inventory_adjustments(seed_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_seeds_type ON seeds(type)"))
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("Index creation skipped: %s", exc)
+
+
 def _migrate_task_status_labels(engine):
     """Normalize legacy task status values."""
     with engine.begin() as conn:
         conn.execute(text("UPDATE tasks SET status = 'To Do' WHERE status = 'Pending'"))
+
+
+def _serialize_date(value: Optional[date]) -> Optional[str]:
+    if not value:
+        return None
+    try:
+        return value.isoformat()
+    except AttributeError:
+        return str(value)
+
+
+def _serialize_datetime(value: Optional[datetime]) -> Optional[str]:
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    try:
+        return datetime.fromisoformat(str(value)).isoformat()
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _parse_date(value: Any) -> Optional[date]:
+    if value in (None, "", b""):
+        return None
+    if isinstance(value, date):
+        return value
+    try:
+        return datetime.fromisoformat(str(value)).date()
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_datetime(value: Any) -> Optional[datetime]:
+    if value in (None, "", b""):
+        return None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, date):
+        return datetime.combine(value, datetime.min.time())
+    try:
+        return datetime.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _prepare_seed_updates(updates: Dict[str, Any]) -> Dict[str, Any]:
+    parsed = updates.copy()
+    for key in ("date_ordered", "date_finished", "date_cataloged", "date_ran_out"):
+        if key in parsed:
+            parsed[key] = _parse_date(parsed[key])
+    return parsed
+
+
+def _prepare_task_updates(updates: Dict[str, Any]) -> Dict[str, Any]:
+    parsed = updates.copy()
+    if "due_date" in parsed:
+        parsed["due_date"] = _parse_date(parsed["due_date"])
+    if "completed_at" in parsed:
+        parsed["completed_at"] = _parse_datetime(parsed["completed_at"])
+    return parsed
+
+
+def _prepare_inventory_updates(updates: Dict[str, Any]) -> Dict[str, Any]:
+    return updates.copy()
 
 
 def _seed_to_dict(seed: Seed) -> Dict[str, Any]:
@@ -95,13 +199,13 @@ def _seed_to_dict(seed: Seed) -> Dict[str, Any]:
         "name": seed.name,
         "packets_made": seed.packets_made,
         "seed_source": seed.seed_source,
-        "date_ordered": seed.date_ordered,
-        "date_finished": seed.date_finished,
-        "date_cataloged": seed.date_cataloged,
-        "date_ran_out": seed.date_ran_out,
+        "date_ordered": _serialize_date(seed.date_ordered),
+        "date_finished": _serialize_date(seed.date_finished),
+        "date_cataloged": _serialize_date(seed.date_cataloged),
+        "date_ran_out": _serialize_date(seed.date_ran_out),
         "amount_text": seed.amount_text,
-        "created_at": seed.created_at,
-        "updated_at": seed.updated_at,
+        "created_at": _serialize_datetime(seed.created_at),
+        "updated_at": _serialize_datetime(seed.updated_at),
     }
 
 
@@ -112,11 +216,11 @@ def _task_to_dict(task: Task, seed: Optional[Seed] = None) -> Dict[str, Any]:
         "task_type": task.task_type,
         "status": TaskStatus.normalize(task.status),
         "priority": getattr(task, "priority", None) or "Medium",
-        "due_date": task.due_date,
-        "completed_at": task.completed_at,
+        "due_date": _serialize_date(task.due_date),
+        "completed_at": _serialize_datetime(task.completed_at),
         "description": task.description,
-        "created_at": task.created_at,
-        "updated_at": task.updated_at,
+        "created_at": _serialize_datetime(task.created_at),
+        "updated_at": _serialize_datetime(task.updated_at),
     }
     if seed:
         task_dict["seed_name"] = seed.name
@@ -132,7 +236,7 @@ def _inventory_to_dict(inventory: Inventory, seed: Optional[Seed] = None) -> Dic
         "buy_more": bool(inventory.buy_more),
         "extra": bool(inventory.extra),
         "notes": inventory.notes,
-        "last_updated": inventory.last_updated,
+        "last_updated": _serialize_datetime(inventory.last_updated),
     }
     if seed:
         inventory_dict["seed_name"] = seed.name
@@ -147,7 +251,7 @@ def _adjustment_to_dict(adjustment: InventoryAdjustment, seed: Optional[Seed] = 
         "adjustment_type": adjustment.adjustment_type,
         "amount_change": adjustment.amount_change,
         "reason": adjustment.reason,
-        "adjusted_at": adjustment.adjusted_at,
+        "adjusted_at": _serialize_datetime(adjustment.adjusted_at),
     }
     if seed:
         adjustment_dict["seed_name"] = seed.name
@@ -162,13 +266,13 @@ def create_seed(seed: Seed) -> int:
             name=seed.name,
             packets_made=seed.packets_made,
             seed_source=seed.seed_source,
-            date_ordered=seed.date_ordered,
-            date_finished=seed.date_finished,
-            date_cataloged=seed.date_cataloged,
-            date_ran_out=seed.date_ran_out,
+            date_ordered=_parse_date(seed.date_ordered),
+            date_finished=_parse_date(seed.date_finished),
+            date_cataloged=_parse_date(seed.date_cataloged),
+            date_ran_out=_parse_date(seed.date_ran_out),
             amount_text=seed.amount_text,
-            created_at=seed.created_at or datetime.now().isoformat(),
-            updated_at=seed.updated_at or datetime.now().isoformat(),
+            created_at=_parse_datetime(seed.created_at) or datetime.now(),
+            updated_at=_parse_datetime(seed.updated_at) or datetime.now(),
         )
         session.add(new_seed)
         session.flush()
@@ -201,8 +305,9 @@ def update_seed(seed_id: int, updates: Dict[str, Any]) -> bool:
         if not seed:
             return False
 
-        updates["updated_at"] = datetime.now().isoformat()
-        for key, value in updates.items():
+        parsed_updates = _prepare_seed_updates(updates)
+        parsed_updates["updated_at"] = datetime.now()
+        for key, value in parsed_updates.items():
             setattr(seed, key, value)
         session.flush()
         logger.info(f"Updated seed {seed_id}")
@@ -228,11 +333,11 @@ def create_task(task: Task) -> int:
             task_type=task.task_type,
             status=task.status,
             priority=getattr(task, "priority", None) or "Medium",
-            due_date=task.due_date,
-            completed_at=task.completed_at,
+            due_date=_parse_date(task.due_date),
+            completed_at=_parse_datetime(task.completed_at),
             description=task.description,
-            created_at=task.created_at or datetime.now().isoformat(),
-            updated_at=task.updated_at or datetime.now().isoformat(),
+            created_at=_parse_datetime(task.created_at) or datetime.now(),
+            updated_at=_parse_datetime(task.updated_at) or datetime.now(),
         )
         session.add(new_task)
         session.flush()
@@ -275,8 +380,9 @@ def update_task(task_id: int, updates: Dict[str, Any]) -> bool:
         if not task:
             return False
 
-        updates["updated_at"] = datetime.now().isoformat()
-        for key, value in updates.items():
+        parsed_updates = _prepare_task_updates(updates)
+        parsed_updates["updated_at"] = datetime.now()
+        for key, value in parsed_updates.items():
             setattr(task, key, value)
         session.flush()
         logger.info(f"Updated task {task_id}")
@@ -313,7 +419,7 @@ def get_or_create_inventory(seed_id: int) -> Dict[str, Any]:
             buy_more=False,
             extra=False,
             notes="",
-            last_updated=datetime.now().isoformat(),
+            last_updated=datetime.now(),
         )
         session.add(inventory)
         session.flush()
@@ -331,8 +437,9 @@ def update_inventory(seed_id: int, updates: Dict[str, Any]) -> bool:
         if not inventory:
             return False
 
-        updates["last_updated"] = datetime.now().isoformat()
-        for key, value in updates.items():
+        parsed_updates = _prepare_inventory_updates(updates)
+        parsed_updates["last_updated"] = datetime.now()
+        for key, value in parsed_updates.items():
             setattr(inventory, key, value)
         session.flush()
         logger.info(f"Updated inventory for seed {seed_id}")
@@ -359,7 +466,7 @@ def create_inventory_adjustment(adjustment: InventoryAdjustment) -> int:
             adjustment_type=adjustment.adjustment_type,
             amount_change=adjustment.amount_change,
             reason=adjustment.reason,
-            adjusted_at=adjustment.adjusted_at or datetime.now().isoformat(),
+            adjusted_at=_parse_datetime(adjustment.adjusted_at) or datetime.now(),
         )
         session.add(new_adjustment)
         session.flush()

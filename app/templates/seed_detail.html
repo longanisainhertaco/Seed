@@ -17,6 +17,19 @@
         </div>
     </div>
 
+    {% if error_message %}
+    <div class="alert alert-danger" role="alert">
+        {{ error_message }}
+        {% if validation_errors %}
+        <ul>
+            {% for err in validation_errors %}
+            <li>{{ err['loc']|join('.') }}: {{ err['msg'] }}</li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+    </div>
+    {% endif %}
+
     <div class="card">
         <h3>Seed Information</h3>
         <form method="post" action="/seeds/{{ seed.id }}/update">

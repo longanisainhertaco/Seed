@@ -51,6 +51,16 @@ class TestImportService(unittest.TestCase):
         mock_create_seed.assert_not_called()
         mock_inventory.assert_not_called()
 
+    def test_duplicate_column_mapping_flagged(self):
+        """Ensure duplicate column mappings are rejected to avoid ambiguous imports."""
+        file_path = self._create_temp_excel({'Type': ['Herb'], 'Name': ['Basil'], 'Extra': ['x']})
+        mapping = {'Type': 'Type', 'Name': 'Name', 'packets_made': 'Type'}
+
+        result = import_seeds_from_excel(file_path, mapping)
+
+        self.assertFalse(result['success'])
+        self.assertIn("Column 'Type' is mapped to multiple fields. Please choose unique columns.", result['mapping_errors'])
+
 
 if __name__ == '__main__':
     unittest.main()

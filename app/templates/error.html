@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+
+{% block title %}Error{% endblock %}
+
+{% block content %}
+<div class="error-page" role="alert" aria-live="assertive">
+    <h2>An error occurred</h2>
+    <p>Status: {{ status_code }}</p>
+    <p>{{ message }}</p>
+    <a class="btn btn-primary" href="/">Go back home</a>
+</div>
+{% endblock %}
