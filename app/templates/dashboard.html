@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Seed Library{% endblock %}
+
+{% block content %}
+<div class="dashboard">
+    <h2>Dashboard</h2>
+
+    <div class="metrics-grid">
+        <div class="metric-card">
+            <h3>Total Tasks</h3>
+            <p class="metric-value">{{ metrics.total }}</p>
+        </div>
+        <div class="metric-card done">
+            <h3>Done</h3>
+            <p class="metric-value">{{ metrics.done }}</p>
+        </div>
+        <div class="metric-card in-progress">
+            <h3>In Progress</h3>
+            <p class="metric-value">{{ metrics.in_progress }}</p>
+        </div>
+        <div class="metric-card overdue">
+            <h3>Overdue</h3>
+            <p class="metric-value">{{ metrics.overdue }}</p>
+        </div>
+        <div class="metric-card due-today">
+            <h3>Due Today</h3>
+            <p class="metric-value">{{ metrics.due_today }}</p>
+        </div>
+        <div class="metric-card completion">
+            <h3>Completion</h3>
+            <p class="metric-value">{{ metrics.completion_percentage }}%</p>
+        </div>
+    </div>
+
+    <div class="summary-section">
+        <div class="summary-card">
+            <h3>📦 Total Seeds</h3>
+            <p class="summary-value">{{ seeds_count }}</p>
+            <a href="/seeds" class="btn btn-primary">View All Seeds</a>
+        </div>
+        <div class="summary-card">
+            <h3>📋 Recent Tasks</h3>
+            <p class="summary-value">{{ recent_tasks|length }} tasks</p>
+            <a href="/tasks" class="btn btn-primary">View All Tasks</a>
+        </div>
+        <div class="summary-card">
+            <h3>📊 Inventory</h3>
+            <p class="summary-value">Manage stock</p>
+            <a href="/inventory" class="btn btn-primary">View Inventory</a>
+        </div>
+    </div>
+
+    {% if recent_tasks %}
+    <div class="recent-tasks">
+        <h3>Recent Tasks</h3>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Task Type</th>
+                    <th>Seed</th>
+                    <th>Status</th>
+                    <th>Due Date</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for task in recent_tasks[:5] %}
+                <tr>
+                    <td><span class="badge badge-{{ task.task_type.lower() }}">{{ task.task_type }}</span></td>
+                    <td>{{ task.seed_name }}</td>
+                    <td><span class="badge badge-{{ task.status.lower().replace(' ', '-') }}">{{ task.status }}</span></td>
+                    <td>{{ task.due_date[:10] if task.due_date else 'N/A' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

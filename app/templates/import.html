@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block title %}Import - Seed Library{% endblock %}
+
+{% block content %}
+<div class="import-page">
+    <h2>Import Seeds from Excel</h2>
+
+    <div class="card">
+        <h3>Upload Excel File</h3>
+        <p>Upload an Excel file (.xlsx or .xls) with the following columns:</p>
+        <ul>
+            <li>Type</li>
+            <li>Name</li>
+            <li>packets_made</li>
+            <li>seed_source</li>
+            <li>date_ordered</li>
+            <li>date_finished</li>
+            <li>date_cataloged</li>
+            <li>date_ran_out</li>
+            <li>amount_text</li>
+        </ul>
+
+        <form method="post" action="/import" enctype="multipart/form-data">
+            <div class="form-group">
+                <label>Select Excel File</label>
+                <input type="file" name="file" accept=".xlsx,.xls" required>
+            </div>
+            <button type="submit" class="btn btn-primary">Import</button>
+        </form>
+    </div>
+
+    {% if result %}
+    <div class="card {% if result.success %}success{% else %}error{% endif %}">
+        <h3>Import Results</h3>
+        {% if result.success %}
+            <p class="success-message">✓ Successfully imported {{ result.imported_count }} out of {{ result.total_rows }} seeds.</p>
+            {% if result.errors %}
+                <h4>Errors:</h4>
+                <ul>
+                    {% for error in result.errors %}
+                    <li class="error-message">{{ error }}</li>
+                    {% endfor %}
+                </ul>
+            {% endif %}
+            <a href="/seeds" class="btn btn-primary">View Seeds</a>
+        {% else %}
+            <p class="error-message">✗ Import failed: {{ result.error }}</p>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

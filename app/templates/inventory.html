@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block title %}Inventory - Seed Library{% endblock %}
+
+{% block content %}
+<div class="inventory-page">
+    <div class="page-header">
+        <h2>Inventory</h2>
+        <div class="filter-buttons">
+            <a href="/inventory" class="btn {% if not filter %}btn-active{% endif %}">All</a>
+            <a href="/inventory?filter=buy_more" class="btn {% if filter == 'buy_more' %}btn-active{% endif %}">Buy More</a>
+            <a href="/inventory?filter=extra" class="btn {% if filter == 'extra' %}btn-active{% endif %}">Extra</a>
+        </div>
+    </div>
+
+    {% if inventory_items %}
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Seed Name</th>
+                <th>Type</th>
+                <th>Current Amount</th>
+                <th>Buy More</th>
+                <th>Extra</th>
+                <th>Notes</th>
+                <th>Last Updated</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in inventory_items %}
+            <tr>
+                <td><a href="/seeds/{{ item.seed_id }}" class="link">{{ item.seed_name }}</a></td>
+                <td>{{ item.seed_type }}</td>
+                <td>{{ item.current_amount }}</td>
+                <td>{% if item.buy_more %}<span class="badge badge-warning">Yes</span>{% else %}No{% endif %}</td>
+                <td>{% if item.extra %}<span class="badge badge-info">Yes</span>{% else %}No{% endif %}</td>
+                <td>{{ item.notes }}</td>
+                <td>{{ item.last_updated[:10] if item.last_updated else 'N/A' }}</td>
+                <td>
+                    <a href="/seeds/{{ item.seed_id }}" class="btn btn-sm">View</a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">
+        <p>No inventory items found.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
