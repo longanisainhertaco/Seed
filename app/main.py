@@ -6,6 +6,7 @@ from datetime import datetime
 import logging
 import os
 import shutil
+import json
 from typing import Optional
 
 from app.database import (
@@ -31,18 +32,33 @@ init_database()
 logger.info("Seed Library Task Tracker started")
 
 
+def get_seed_category_counts(seeds: Optional[list] = None) -> dict:
+    """Aggregate seed counts by category/type."""
+    seed_records = seeds if seeds is not None else get_all_seeds()
+    counts = {}
+
+    for seed in seed_records:
+        category = seed.get("type") or "Uncategorized"
+        counts[category] = counts.get(category, 0) + 1
+
+    return counts
+
+
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
     """Dashboard with metrics and overview."""
     metrics = calculate_task_metrics()
-    seeds_count = len(get_all_seeds())
+    seeds = get_all_seeds()
+    seeds_count = len(seeds)
     recent_tasks = get_all_tasks()[:10]
+    category_counts = get_seed_category_counts(seeds)
 
     return templates.TemplateResponse("dashboard.html", {
         "request": request,
         "metrics": metrics,
         "seeds_count": seeds_count,
-        "recent_tasks": recent_tasks
+        "recent_tasks": recent_tasks,
+        "category_counts_json": json.dumps(category_counts)
     })
 
 

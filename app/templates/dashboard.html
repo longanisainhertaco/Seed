@@ -51,6 +51,20 @@
         </div>
     </div>
 
+    <div class="chart-section">
+        <div class="chart-card">
+            <div class="chart-card-header">
+                <div>
+                    <h3>Seed Categories</h3>
+                    <p class="chart-subtitle">Distribution of seeds by type</p>
+                </div>
+            </div>
+            <div class="chart-canvas">
+                <canvas id="seedCategoryChart"></canvas>
+            </div>
+        </div>
+    </div>
+
     {% if recent_tasks %}
     <div class="recent-tasks">
         <h3>Recent Tasks</h3>
@@ -77,4 +91,37 @@
     </div>
     {% endif %}
 </div>
+
+<script>
+    const categoryData = JSON.parse('{{ category_counts_json | safe }}');
+    const categoryLabels = Object.keys(categoryData);
+    const categoryValues = Object.values(categoryData);
+    const chartPalette = [
+        '#3498db', '#9b59b6', '#e67e22', '#2ecc71', '#e74c3c',
+        '#1abc9c', '#f39c12', '#7f8c8d', '#16a085', '#8e44ad'
+    ];
+
+    const seedCategoryChart = document.getElementById('seedCategoryChart');
+
+    if (seedCategoryChart && categoryLabels.length && window.Chart) {
+        new Chart(seedCategoryChart, {
+            type: 'pie',
+            data: {
+                labels: categoryLabels,
+                datasets: [{
+                    data: categoryValues,
+                    backgroundColor: categoryLabels.map((_, index) => chartPalette[index % chartPalette.length]),
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                plugins: {
+                    legend: {
+                        position: 'bottom'
+                    }
+                }
+            }
+        });
+    }
+</script>
 {% endblock %}
