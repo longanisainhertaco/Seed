@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, date
 from typing import List, Dict, Any
 import logging
 from app.models import Task, TaskType, TaskStatus
-from app.database import create_task, get_tasks_by_seed, get_seed_by_id
+from app.database import create_task, get_tasks_by_seed, get_seed_by_id, get_all_tasks
 
 logger = logging.getLogger(__name__)
 
@@ -61,8 +61,6 @@ def auto_generate_tasks_for_seed(seed_id: int) -> List[int]:
 
 def calculate_task_metrics() -> Dict[str, Any]:
     """Calculate task metrics for dashboard."""
-    from app.database import get_all_tasks
-
     tasks = get_all_tasks()
     today = datetime.now().date()
 
