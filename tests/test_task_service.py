@@ -5,7 +5,8 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from app.services.task_service import calculate_task_metrics
-from app.models import Task, TaskStatus, TaskType
+from app.services.task_service import auto_generate_tasks_for_seed
+from app.models import Task, TaskStatus, TaskType, TaskPriority
 
 
 class TestTaskService(unittest.TestCase):
@@ -46,6 +47,23 @@ class TestTaskService(unittest.TestCase):
             self.assertEqual(metrics['overdue'], 1)
             self.assertEqual(metrics['due_today'], 1)
             self.assertEqual(metrics['completion_percentage'], 25.0)
+
+    def test_auto_generate_tasks_skips_duplicates(self):
+        """Ensure auto-generation does not recreate tasks once completed."""
+        from unittest.mock import patch
+
+        existing_tasks = [
+            {'task_type': TaskType.PACK, 'status': TaskStatus.DONE},
+            {'task_type': TaskType.CATALOG, 'status': TaskStatus.CANCELLED},
+        ]
+
+        with patch('app.services.task_service.get_seed_by_id', return_value={'id': 1, 'name': 'Tomato'}), \
+             patch('app.services.task_service.get_tasks_by_seed', return_value=existing_tasks), \
+             patch('app.services.task_service.create_task') as mock_create_task:
+            generated = auto_generate_tasks_for_seed(1)
+
+        mock_create_task.assert_not_called()
+        self.assertEqual(generated, [])
 
 
 if __name__ == '__main__':

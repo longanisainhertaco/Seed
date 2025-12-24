@@ -50,8 +50,9 @@ Seed/
 ## Installation & Setup
 
 ### Prerequisites
-- Python 3.8 or higher
-- Windows 10 or later
+- Python 3.10 or higher
+- SQLite (bundled with Python)
+- Recommended: virtual environment (venv)
 
 ### Development Setup
 
@@ -72,12 +73,18 @@ Seed/
    pip install -r requirements.txt
    ```
 
-4. **Run the application**
+4. **Run the application (cross-platform)**
    ```bash
-   python app/main.py
+   uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
    ```
 
-5. **Open browser**
+5. **Environment variables**
+   - `DATABASE_PATH` (default: `data/seed_library.db`)
+   - `DATA_DIR` (default: `data/`)
+   - `LOG_DIR` (default: `logs/`)
+   - `MAX_IMPORT_BYTES` (default: 5242880 bytes)
+
+6. **Open browser**
    Navigate to http://127.0.0.1:8000
 
 ## Building Windows Executable
@@ -97,6 +104,15 @@ This will:
 - Create `dist/SeedLibraryTaskTracker.exe`
 
 The executable can be distributed and run without Python installation.
+
+## Docker
+
+Build and run the container locally:
+
+```bash
+docker build -t seed-library .
+docker run -p 8000:8000 -v "$(pwd)/data":/app/data seed-library
+```
 
 ## Usage
 
@@ -150,45 +166,43 @@ The dashboard displays:
 
 ## Testing
 
-Run the test suite:
+- Targeted suite:
+  ```bash
+  python -m unittest discover tests
+  ```
+- Sample seed fixtures live in `tests/fixtures/seeds_sample.json` for reproducible data-driven checks.
+
+## Linting, Formatting, and Type Checking
+
+Development-only dependencies live in `requirements-dev.txt`:
 
 ```bash
-python -m unittest discover tests
+pip install -r requirements-dev.txt
 ```
 
-Individual test files:
+- Ruff lint: `ruff check .`
+- Black format: `black .`
+- MyPy type check: `mypy app`
+
+Pre-commit hooks are configured in `.pre-commit-config.yaml`:
+
 ```bash
-python -m unittest tests.test_models
-python -m unittest tests.test_database
-python -m unittest tests.test_task_service
+pre-commit install
+pre-commit run --all-files
 ```
 
 ## Logging
 
-Logs are written to:
 - Console (stdout) - INFO level
-- File: `seed_library_YYYYMMDD.log` - INFO level
+- Rotating file: `logs/seed_library.log` (1 MB max, 3 backups)
 
-Log format includes timestamp, module name, level, and message.
+Log format includes timestamp, module name, level, and message. Requests are also logged with duration for observability.
 
-## Database Schema
+## Database Schema & Migrations
 
-### Seeds Table
-- id, type, name, packets_made, seed_source
-- date_ordered, date_finished, date_cataloged, date_ran_out
-- amount_text, created_at, updated_at
-
-### Tasks Table
-- id, seed_id, task_type, status, due_date
-- completed_at, description, created_at, updated_at
-
-### Inventory Table
-- id, seed_id, current_amount, buy_more, extra
-- notes, last_updated
-
-### Inventory Adjustments Table
-- id, seed_id, adjustment_type, amount_change
-- reason, adjusted_at
+- Uses SQLite with Date/DateTime columns and helpful indexes.
+- Alembic manages schema: `alembic upgrade head` (configured for `DATABASE_PATH`).
+- Tasks enforce one task per type per seed via a unique constraint to keep auto-generation idempotent.
 
 ## Technologies Used
 

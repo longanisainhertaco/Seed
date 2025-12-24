@@ -1,6 +1,8 @@
 import logging
 import sys
-from datetime import datetime
+from logging.handlers import RotatingFileHandler
+
+from app.config import LOG_FILE
 
 
 def setup_logging():
@@ -8,13 +10,20 @@ def setup_logging():
     log_format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     date_format = '%Y-%m-%d %H:%M:%S'
 
+    rotating_handler = RotatingFileHandler(
+        LOG_FILE,
+        maxBytes=1_000_000,
+        backupCount=3,
+        encoding="utf-8",
+    )
+
     logging.basicConfig(
         level=logging.INFO,
         format=log_format,
         datefmt=date_format,
         handlers=[
             logging.StreamHandler(sys.stdout),
-            logging.FileHandler(f'seed_library_{datetime.now().strftime("%Y%m%d")}.log')
+            rotating_handler,
         ]
     )
 
